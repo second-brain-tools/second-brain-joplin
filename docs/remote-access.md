@@ -373,6 +373,51 @@ to steer an AI could ask it to write more notes. The approval prompt is where yo
 catch that, which is the reason to use a client that asks, and to leave
 `SBJ_ASK_EVERY_TIME` alone unless you need it off.
 
+## Changing notes
+
+The tools that change a note exist only when `SBJ_EDIT_NOTEBOOKS` lists the
+notebooks whose notes may change. `SBJ_WRITE_NOTEBOOKS` alone never allows a
+change: it has always meant "a new note, and nothing else". A client may have
+no prompt at all (an always-on agent, or `SBJ_ASK_EVERY_TIME=false`), so the
+server's own rules are what make a change safe:
+
+- **Where.** Only notes in a notebook on the edit list, and its sub-notebooks,
+  and never one the filter hides. A hidden note gets the answer a missing one
+  gets, before any other check can answer differently.
+- **Which version.** The call carries the checksum of the text it read
+  (`body_sha256` from `joplin_read`). If the note changed since, nothing is
+  written, so an edit you made in Joplin is never overwritten unseen.
+- **Which note.** The call names the note's current title as well as its id,
+  so a prompt, where the client shows one, says which note will change.
+- **Which notes never.** A note in the trash, a conflict copy, an encrypted
+  note and one that isn't Markdown (a clipped web page) are refused. So is a
+  change that would remove a reference (`:/<id>`) to one of the note's
+  attachments: Joplin deletes an attachment no note refers to.
+- **A copy first.** Before anything is sent to Joplin, the note's title, text
+  and notebook are saved on the server's disk
+  ([`SBJ_UNDO_DIR`](configuration.md#changing-notes), 90 days). If that copy
+  can't be written, nothing is changed. `second-brain-joplin restore` puts a
+  copy back ([the command](configuration.md#second-brain-joplin-restore)).
+- **A daily limit.** `SBJ_CHANGES_PER_DAY` (100) changes a day, all tools
+  together, counted from the copies so a restart doesn't reset it.
+- **Only what it means to change.** Joplin's API changes whatever properties a
+  request carries, so each request carries one: the text, or the title.
+- **One at a time.** Two changes to one note run one after the other, and the
+  second sees what the first did.
+- **No second change from a repeat.** The same call again within ten minutes,
+  while the note still holds what the first left, gets the first answer with
+  `already_applied: true`.
+- **An honest answer when Joplin fails.** If Joplin's answer is lost, the note
+  is read again: the change arrived, it didn't, or it can't be told yet.
+- **A record.** Each change is logged with the tool, the note's id, its
+  notebook's id and the caller, before it goes out and with its outcome. Never
+  the title or text. `joplin_changes` lists what was changed, with no text.
+
+Joplin's own note history isn't relied on for undoing a change: a change made
+through Joplin's API reaches it only every few minutes, and the text from before
+a change is kept as an entry of its own only when the note had been left alone
+for a while.
+
 ## Limits and logs
 
 - **Rate limit:** `SBJ_RATE_LIMIT_PER_MINUTE` tool calls per minute per GitHub
@@ -523,6 +568,10 @@ Cowork. Free accounts can add one custom connector.
 | `SBJ_NOTEBOOKS` | none | Only these notebooks (ids or titles, comma-separated) are visible |
 | `SBJ_EXCLUDE_NOTEBOOKS` | none | These notebooks are hidden |
 | `SBJ_WRITE_NOTEBOOKS` | none (read-only) | Notes may be created in these notebooks; `*` = every visible one |
+| `SBJ_EDIT_NOTEBOOKS` | none (no changes) | Notes in these notebooks may be changed; `*` = every visible one |
+| `SBJ_REPLACE` | `false` | `true` adds the tool that rewrites a whole note |
+| `SBJ_UNDO_DIR` / `SBJ_UNDO_DAYS` / `SBJ_UNDO_MAX_MB` | see [configuration](configuration.md#changing-notes) / `90` / `500` | The copies kept before each change |
+| `SBJ_CHANGES_PER_DAY` | `100` | The most changes in a day |
 | `SBJ_ASK_EVERY_TIME` | `true` | `false` leaves off the mark that asks Claude's clients to check with you before each note |
 | `SBJ_RATE_LIMIT_PER_MINUTE` | `60` | Tool calls per caller; 0 = off |
 | `SBJ_SYNC_INTERVAL_MINUTES` | `15` | Background index sync; 0 = off |

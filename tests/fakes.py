@@ -140,6 +140,16 @@ class FakeJoplin:
         self.notes: dict[str, dict[str, Any]] = {}
         self.requests: list[str] = []  # the path of every request, in order
         self.queries: list[str] = []  # the query of every /search request
+        # For tests to keep the ids they set up by: notebooks by name, and one note.
+        self.ids: dict[str, str] = {}
+        self.note_id = ""
+        self.puts: list[dict[str, Any]] = []  # the JSON body of every PUT /notes/:id
+        # Before a PUT is applied: a test can look at the world (the journal) then.
+        self.before_put: Callable[[str, dict[str, Any]], None] | None = None
+        self.put_loses_response = False  # apply the change, then time out
+        self.put_saves_nothing_and_times_out = False  # time out, apply nothing
+        self.put_refused = False  # the connection is refused: nothing applied
+        self.put_status: int | None = None  # answer with this error, applying nothing
         self.note_tags: dict[str, list[str]] = {}  # note id -> tag titles
         self.resources: dict[str, dict[str, Any]] = {}  # resource id -> {title, mime, size}
         self.note_resources: dict[str, list[str]] = {}  # note id -> resource ids
@@ -211,6 +221,7 @@ class FakeJoplin:
         respx.get(f"{self.base_url}/notes").mock(side_effect=self._notes)
         respx.get(f"{self.base_url}/search").mock(side_effect=self._search)
         respx.post(f"{self.base_url}/notes").mock(side_effect=self._create)
+        respx.put(url__regex=rf"{base}/notes/[^/?]+(?:\?|$)").mock(side_effect=self._update)
         respx.get(url__regex=rf"{base}/folders/[^/?]+/notes").mock(side_effect=self._folder_notes)
         respx.get(url__regex=rf"{base}/notes/[^/?]+/tags").mock(side_effect=self._tags_of)
         respx.get(url__regex=rf"{base}/notes/[^/?]+/resources").mock(side_effect=self._resources_of)
@@ -243,6 +254,29 @@ class FakeJoplin:
             if n["parent_id"] == folder_id and not n.get("deleted_time")
         ]
         return self._page(request, rows)
+
+    def _update(self, request: httpx.Request) -> httpx.Response:
+        """PUT /notes/:id: changes exactly the properties sent, as Joplin does."""
+        self.requests.append(f"PUT {request.url.path}")
+        if self.down or self.put_refused:
+            raise httpx.ConnectError("connection refused")
+        note_id = request.url.path.rsplit("/", 1)[-1]
+        payload = json.loads(request.content)
+        self.puts.append(payload)
+        if self.before_put is not None:
+            self.before_put(note_id, payload)
+        if self.put_saves_nothing_and_times_out:
+            raise httpx.ReadTimeout("no answer")
+        if self.put_status is not None:
+            return httpx.Response(self.put_status)
+        note = self.notes.get(note_id)
+        if note is None:
+            return httpx.Response(404)
+        note.update(payload)
+        note["updated_time"] = int(note.get("updated_time", 0)) + 1000
+        if self.put_loses_response:
+            raise httpx.ReadTimeout("the answer never arrived")
+        return httpx.Response(200, json=note)
 
     def _tags_of(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request.url.path)

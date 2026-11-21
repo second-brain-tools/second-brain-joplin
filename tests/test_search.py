@@ -30,7 +30,7 @@ def joplin() -> Iterator[FakeJoplin]:
         parent = fake.notebook("Parent")
         kid = fake.notebook("Kid", parent=parent)
         other = fake.notebook("Other")
-        fake.ids = {"parent": parent, "kid": kid, "other": other}  # type: ignore[attr-defined]
+        fake.ids = {"parent": parent, "kid": kid, "other": other}
         fake.note("In parent", "apple parent", parent)
         fake.note("In kid", BODY, kid, updated_time=1_700_000_000_000)
         fake.note("In other", "apple other", other)
@@ -53,7 +53,7 @@ def _titles(results: list[dict[str, Any]]) -> set[str]:
 
 async def test_a_hit_carries_its_notebook_time_snippet_and_section(joplin: FakeJoplin) -> None:
     [hit] = await _search("trees")
-    assert hit["notebook_id"] == joplin.ids["kid"]  # type: ignore[attr-defined]
+    assert hit["notebook_id"] == joplin.ids["kid"]
     assert hit["updated_time"].startswith("2023-11-14")
     assert "apple trees in spring" in hit["snippet"]
     assert (hit["section"], hit["section_heading"]) == ("1", "Plan")
@@ -90,7 +90,7 @@ async def test_a_section_from_search_is_one_joplin_read_accepts(joplin: FakeJopl
 
 async def test_the_limit_now_goes_to_100(joplin: FakeJoplin) -> None:
     for i in range(120):
-        joplin.note(f"n{i}", "pear", joplin.ids["other"])  # type: ignore[attr-defined]
+        joplin.note(f"n{i}", "pear", joplin.ids["other"])
     assert len(await _search("pear", limit=100)) == 100
 
 
@@ -193,7 +193,7 @@ async def test_a_search_looks_at_no_more_than_the_page_cap(
     joplin: FakeJoplin, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for i in range(MAX_SEARCH_PAGES * 100 + 250):
-        joplin.note(f"h{i}", "plum", joplin.ids["other"])  # type: ignore[attr-defined]
+        joplin.note(f"h{i}", "plum", joplin.ids["other"])
     monkeypatch.setenv("SBJ_EXCLUDE_NOTEBOOKS", "Other")  # every hit is hidden
     assert await _search("plum") == []
     assert joplin.count("/search") == MAX_SEARCH_PAGES

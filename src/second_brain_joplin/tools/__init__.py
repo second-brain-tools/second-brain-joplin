@@ -8,15 +8,21 @@ server is read-only and a client can't even see a write tool.
 
 from fastmcp import FastMCP
 
-from . import read, semantic, write
+from . import changes, read, semantic, write
 
 
-def register_tools(mcp: FastMCP, *, writes: bool = False, ask_every_time: bool = True) -> None:
-    """Register the MCP tools on the given FastMCP server; the write tool on request.
+def register_tools(
+    mcp: FastMCP, *, writes: bool = False, edits: bool = False, ask_every_time: bool = True
+) -> None:
+    """Register the MCP tools on the given FastMCP server; the write tools on request.
 
-    ``ask_every_time`` is the write tool's: see :func:`write.register`.
+    ``writes`` adds note creation (``SBJ_WRITE_NOTEBOOKS``); ``edits`` the tools that
+    change notes and ``joplin_changes`` (``SBJ_EDIT_NOTEBOOKS``). ``ask_every_time``
+    marks every write tool: see :func:`write.register`.
     """
     read.register(mcp)
     semantic.register(mcp)
     if writes:
         write.register(mcp, ask_every_time=ask_every_time)
+    if edits:
+        changes.register(mcp)

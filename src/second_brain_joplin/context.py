@@ -7,6 +7,7 @@ this module — and therefore starting the server on a base install — never
 requires the extras.
 """
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -14,7 +15,9 @@ from fastmcp import Context
 
 from .config import Settings
 from .joplin_client import JoplinClient
-from .recent import RecentNotes
+from .journal import Journal
+from .models import ChangedNote
+from .recent import Recent, RecentNotes
 from .scope import NotebookScope, WriteTargets, current_scope, current_write_targets
 from .semantic.service import SemanticSearchService
 
@@ -30,7 +33,25 @@ class AppContext:
     remote: bool = False
     # What the write tool sent lately, so a repeated request isn't a second note.
     recent_notes: RecentNotes = field(default_factory=RecentNotes, repr=False)
+    # What the tools that change a note answered lately, so a repeat changes nothing.
+    recent_changes: Recent[ChangedNote] = field(default_factory=Recent, repr=False)
     _semantic: SemanticSearchService | None = field(default=None, init=False, repr=False)
+    _journal: Journal | None = field(default=None, init=False, repr=False)
+    _note_locks: dict[str, asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
+
+    def journal(self) -> Journal:
+        """The journal of kept copies (journal.py), from the settings."""
+        if self._journal is None:
+            self._journal = Journal(
+                self.settings.undo_dir,
+                days=self.settings.undo_days,
+                max_mb=self.settings.undo_max_mb,
+            )
+        return self._journal
+
+    def note_lock(self, note_id: str) -> asyncio.Lock:
+        """One lock per note: two changes to the same note run one after the other."""
+        return self._note_locks.setdefault(note_id, asyncio.Lock())
 
     async def scope(self) -> NotebookScope:
         """The notebooks a tool may see, resolved against Joplin now (scope.py).

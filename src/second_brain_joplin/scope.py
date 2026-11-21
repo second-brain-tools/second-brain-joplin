@@ -31,6 +31,7 @@ logger = logging.getLogger("second_brain_joplin.scope")
 INCLUDE_VAR = "SBJ_NOTEBOOKS"
 EXCLUDE_VAR = "SBJ_EXCLUDE_NOTEBOOKS"
 WRITE_VAR = "SBJ_WRITE_NOTEBOOKS"
+EDIT_VAR = "SBJ_EDIT_NOTEBOOKS"
 # In SBJ_WRITE_NOTEBOOKS: every notebook the filter shows.
 ANY_NOTEBOOK = "*"
 
@@ -175,13 +176,18 @@ def resolve_scope(
 
 
 def resolve_write_targets(
-    write: Sequence[str], scope: NotebookScope, folders: Sequence[JsonDict]
+    write: Sequence[str],
+    scope: NotebookScope,
+    folders: Sequence[JsonDict],
+    *,
+    variable: str = WRITE_VAR,
+    purpose: str = "no note could be created there",
 ) -> WriteTargets:
-    """Turn ``SBJ_WRITE_NOTEBOOKS`` into the notebooks that may receive a note.
+    """Turn a notebook list (``SBJ_WRITE_NOTEBOOKS``, ``SBJ_EDIT_NOTEBOOKS``) into notebooks.
 
     Always a subset of what ``scope`` shows. Raises :class:`NotebookFilterError`
     when an entry names no notebook, names more than one, or names a hidden one
-    (listing it could never make it writable, so it is a mistake to point out).
+    (listing it could never take effect, so it is a mistake to point out).
     """
     if not write:
         return WriteTargets()
@@ -191,11 +197,10 @@ def resolve_write_targets(
         if entry == ANY_NOTEBOOK:
             chosen |= notebooks.ids
             continue
-        root = notebooks.find(WRITE_VAR, entry)
+        root = notebooks.find(variable, entry)
         if not scope.allows(root):
             raise NotebookFilterError(
-                f"{WRITE_VAR}: {entry!r} is hidden by the notebook filter, so no note "
-                "could be created there"
+                f"{variable}: {entry!r} is hidden by the notebook filter, so {purpose}"
             )
         chosen |= notebooks.subtree(root)
     return WriteTargets(
@@ -245,6 +250,17 @@ async def current_write_targets(client: JoplinClient, settings: Settings) -> Wri
     return write_targets_of(settings, await client.get_folders())
 
 
+def edit_targets_of(settings: Settings, folders: Sequence[JsonDict]) -> WriteTargets:
+    """Resolve whose notes may be changed against notebooks already fetched."""
+    return resolve_write_targets(
+        settings.edit_notebooks,
+        scope_of(settings, folders),
+        folders,
+        variable=EDIT_VAR,
+        purpose="no note there could be changed",
+    )
+
+
 async def check_at_startup(settings: Settings) -> None:
     """Refuse to start with notebook settings that Joplin's notebooks contradict.
 
@@ -258,7 +274,7 @@ async def check_at_startup(settings: Settings) -> None:
     if not settings.notebook_filter_set:
         # Said out loud, so a misspelt variable name doesn't pass for a filter.
         logger.info("no notebook filter is set: every notebook is readable")
-    if not (settings.notebook_filter_set or settings.writes_enabled):
+    if not (settings.notebook_filter_set or settings.writes_enabled or settings.edits_enabled):
         return
     client = JoplinClient(settings)
     try:
@@ -274,7 +290,10 @@ async def check_at_startup(settings: Settings) -> None:
         await client.aclose()
     scope = scope_of(settings, folders)
     targets = write_targets_of(settings, folders)
+    editable = edit_targets_of(settings, folders)
     if scope.visible is not None:
         logger.info("notebook filter: %d of %d notebooks visible", len(scope.visible), len(folders))
     if settings.writes_enabled:
         logger.info("note creation: allowed in %d notebooks", len(targets.titles))
+    if settings.edits_enabled:
+        logger.info("changing notes: allowed in %d notebooks", len(editable.titles))

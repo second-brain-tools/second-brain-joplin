@@ -120,6 +120,35 @@ class SearchResult(BaseModel):
     section_heading: str | None = None
 
 
+class ChangedNote(BaseModel):
+    """What a tool that changes a note did: enough to check it without reading it again."""
+
+    id: str
+    title: str
+    notebook_id: str
+    notebook: str
+    old_chars: int
+    new_chars: int
+    old_sha256: str
+    new_sha256: str
+    updated_time: str | None = None
+    # The same request was answered earlier, and the note still holds its result:
+    # nothing was written this time.
+    already_applied: bool = False
+
+
+class Change(BaseModel):
+    """One change the server made, as joplin_changes lists it. Never any text."""
+
+    at: str
+    tool: str
+    note_id: str
+    title: str | None  # the note's title now; null when the note is gone
+    old_chars: int
+    new_chars: int
+    outcome: str
+
+
 class ListedNote(BaseModel):
     """A note in a notebook's listing."""
 

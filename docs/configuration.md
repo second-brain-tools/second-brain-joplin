@@ -108,6 +108,8 @@ These apply to every tool, over stdio and HTTP alike.
 | `SBJ_NOTEBOOKS` | none: every notebook | Only these notebooks are visible |
 | `SBJ_EXCLUDE_NOTEBOOKS` | none | These notebooks are hidden |
 | `SBJ_WRITE_NOTEBOOKS` | none: read-only | New notes may be created in these notebooks. `*` means every visible notebook. Without it `joplin_create_note` doesn't exist |
+| `SBJ_EDIT_NOTEBOOKS` | none: no note can be changed | Notes in these notebooks may be changed by the tools that change notes. `*` means every visible notebook. Without it none of those tools exists. It is separate from `SBJ_WRITE_NOTEBOOKS`, which only ever allows a new note |
+| `SBJ_REPLACE` | `false` | `true` adds `joplin_replace_note`, which rewrites a whole note, to the tools `SBJ_EDIT_NOTEBOOKS` allows. A value that is neither a yes nor a no stops the server from starting |
 | `SBJ_ASK_EVERY_TIME` | `true` | `joplin_create_note` is marked to ask Claude's clients to put every call to a person. `false` leaves the mark off, for a client whose prompt for a marked tool can't be answered. Notes can then be created without asking you: read [what you give up](remote-access.md#a-client-whose-prompt-cant-be-answered) first |
 
 - An entry is a notebook's **id or its exact title**, and covers that notebook
@@ -126,8 +128,27 @@ These apply to every tool, over stdio and HTTP alike.
   what your settings make of it ([below](#second-brain-joplin-notebooks)).
 
 The rules in full:
-[Choosing which notebooks are exposed](remote-access.md#choosing-which-notebooks-are-exposed)
-and [Creating notes](remote-access.md#creating-notes).
+[Choosing which notebooks are exposed](remote-access.md#choosing-which-notebooks-are-exposed),
+[Creating notes](remote-access.md#creating-notes) and
+[Changing notes](remote-access.md#changing-notes).
+
+## Changing notes
+
+With `SBJ_EDIT_NOTEBOOKS` set, the server keeps a copy of a note before every
+change and limits how many changes it makes in a day
+([what protects a change](remote-access.md#changing-notes)).
+
+| Variable | Default | |
+|---|---|---|
+| `SBJ_UNDO_DIR` | `$XDG_DATA_HOME/second-brain-joplin/undo`, else `~/.local/share/second-brain-joplin/undo` | Where the kept copies go, one file per change, readable only by the user the server runs as |
+| `SBJ_UNDO_DAYS` | `90` | How many days a copy is kept |
+| `SBJ_UNDO_MAX_MB` | `500` | The most the copies may take on disk; past it the oldest go first, never one from the last day |
+| `SBJ_CHANGES_PER_DAY` | `100` | The most changes in one day (the server's local day), all tools together. New notes don't count |
+
+Each is a whole number of at least 1; anything else stops the commands from
+starting. The copies can't be switched off: they are what makes a change safe
+to allow. A copy holds the note's title, text and notebook as they were, so
+the folder holds note text, like the semantic index.
 
 ## Semantic search
 
@@ -227,8 +248,8 @@ Notebook filter: not set; every note is indexed. If the server has one, run this
 
 ### `second-brain-joplin notebooks`
 
-Lists every notebook with its id and note count, marked `hidden`, `visible` or
-`writable` under the settings it was run with. Use it to find the ids for the
+Lists every notebook with its id and note count, marked `hidden`, `visible`,
+`writable`, `editable` or `writable+editable` under the settings it was run with. Use it to find the ids for the
 notebook settings, and to check them before a client sees through them. It needs
 Joplin running.
 
@@ -239,17 +260,48 @@ Joplin running.
 ```
 Notebook filter: 3 of 4 notebooks visible.
 Note creation: allowed in the 1 marked writable.
+Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).
 writable  c7d1e5a09b3f4c2d8e6f1a0b9c8d7e6f  Inbox (4)
 hidden    5a1f0c2e9b7d4f63a8e1c0d2b4f6a7c9  Journal (212)
 visible   9c40d1e7a3b24f58b6c9e0f1a2d3b4c5  Work (57)
 visible   0b7e3f9a1c2d4e5f8a7b6c5d4e3f2a1b    Projects (31)
 ```
 
+With `SBJ_EDIT_NOTEBOOKS` set, the third line says where notes may be changed
+(`Changing notes: allowed in the 2 marked editable.`), and a notebook that takes
+both new notes and changes is marked `writable+editable`.
+
 It lists hidden notebooks too, because this is your own terminal. When the
 settings don't match Joplin's notebooks, it still prints the tree, with `?` for
 each mark, and then says which entry is wrong. With `SBJ_ASK_EVERY_TIME=false`
 and note creation on, a third line at the top says so:
 `Asking before each note: left to the client (SBJ_ASK_EVERY_TIME is off).`
+
+### `second-brain-joplin restore`
+
+Lists the copies the server kept of a note before changing it, or puts one back.
+
+| Option | |
+|---|---|
+| `NOTE_ID` | The note's 32-character id |
+| `--pick N` | Put copy N of the list back: its text, and its title if that changed |
+| `--force` | Restore even if the copy doesn't refer to an attachment the note has now |
+| `--env-file PATH` | Read settings from this file first (`SBJ_UNDO_DIR` above all) |
+
+```
+Kept copies of 4be0a1c2d3e4f5061728394a5b6c7d8e, newest first (in /home/me/.local/share/second-brain-joplin/undo):
+    1  2026-11-22 10:14:03  before joplin_edit_note     1904 characters  (applied)
+    2  2026-11-21 18:02:41  before joplin_edit_note     1873 characters  (applied)
+Put one back with --pick N.
+```
+
+It never shows a copy's text. A restore is kept as a change of its own, so the
+text it replaced can be put back the same way. It runs only on the server's
+machine, as an operator's command: no tool can restore, and the daily limit
+doesn't apply. It refuses a note in the trash, a conflict copy, an encrypted
+note and one that isn't Markdown, like every change. Without `--force` it also
+refuses a copy that would drop a reference to an attachment the note has now,
+because Joplin deletes an attachment no note refers to.
 
 ## Optional installs
 

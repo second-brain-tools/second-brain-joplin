@@ -46,6 +46,9 @@ _NEVER_SENT = (
     httpx.UnsupportedProtocol,
 )
 
+# The note properties a change may send Joplin (update_note).
+CHANGEABLE = frozenset({"body", "title", "parent_id"})
+
 # How long requests are refused at once after Joplin stopped answering.
 HOLD_SECONDS = 30.0
 
@@ -254,7 +257,7 @@ class JoplinClient:
         """Return a single note including its full markdown body."""
         params = {
             "fields": "id,title,body,parent_id,created_time,updated_time,encryption_applied,"
-            "is_todo,todo_due,todo_completed"
+            "is_todo,todo_due,todo_completed,deleted_time,is_conflict,markup_language"
         }
         data: JsonDict = (await self._get(f"/notes/{note_id}", params)).json()
         return data
@@ -325,6 +328,22 @@ class JoplinClient:
         except JoplinNotFoundError:
             return False
         return True
+
+    async def update_note(self, note_id: str, **change: str) -> JsonDict:
+        """Change one property of a note, and only that one; return Joplin's answer.
+
+        Joplin's ``PUT /notes/:id`` changes whatever properties it is sent, so the
+        request carries exactly one, from a fixed list: ``body``, ``title`` or
+        ``parent_id``. Returns an empty dict if the answer isn't a JSON object.
+        """
+        if len(change) != 1 or not set(change) <= CHANGEABLE:
+            raise ValueError(f"one of {sorted(CHANGEABLE)} at a time, got {sorted(change)}")
+        response = await self._request("PUT", f"/notes/{note_id}", json=dict(change))
+        try:
+            data = response.json()
+        except ValueError:
+            return {}
+        return data if isinstance(data, dict) else {}
 
     async def create_note(self, note_id: str, title: str, body: str, parent_id: str) -> JsonDict:
         """Create a note with a chosen id in the notebook ``parent_id``; return Joplin's note.

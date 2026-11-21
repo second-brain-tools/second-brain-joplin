@@ -80,6 +80,7 @@ def create_server(
     remote: bool = False,
     sync_interval_minutes: int = 0,
     writes: bool | None = None,
+    edits: bool | None = None,
     ask_every_time: bool | None = None,
 ) -> FastMCP:
     """Build the MCP server with its tools and the ``/healthz`` route.
@@ -89,9 +90,10 @@ def create_server(
     limits each caller. Every tool call is logged without its content (audit.py).
     ``remote`` and ``sync_interval_minutes`` are HTTP mode's: see make_lifespan.
 
-    ``writes`` says whether the write tool is registered; None reads it from the
-    environment as it is now (``SBJ_WRITE_NOTEBOOKS`` set), so build the server
-    after any env file is loaded. ``ask_every_time`` says whether that tool is
+    ``writes`` says whether the write tool is registered, ``edits`` whether the
+    tools that change notes are; None reads each from the environment as it is now
+    (``SBJ_WRITE_NOTEBOOKS``, ``SBJ_EDIT_NOTEBOOKS``), so build the server after any
+    env file is loaded. ``ask_every_time`` says whether that tool is
     marked to be asked about on every call; None reads ``SBJ_ASK_EVERY_TIME`` the
     same way, which is on unless it plainly says no.
     """
@@ -114,9 +116,11 @@ def create_server(
     settings = Settings.from_env()
     if writes is None:
         writes = settings.writes_enabled
+    if edits is None:
+        edits = settings.edits_enabled
     if ask_every_time is None:
         ask_every_time = settings.ask_every_time
-    register_tools(server, writes=writes, ask_every_time=ask_every_time)
+    register_tools(server, writes=writes, edits=edits, ask_every_time=ask_every_time)
     server.custom_route("/healthz", methods=["GET"])(healthz)
     return server
 

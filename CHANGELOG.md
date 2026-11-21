@@ -8,6 +8,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A safety net for changing notes** (#82), under the tools that change a
+  note (they come with it in this release). `SBJ_EDIT_NOTEBOOKS` lists the
+  notebooks whose notes may change; without it no such tool exists, and
+  `SBJ_WRITE_NOTEBOOKS` alone still allows only new notes. Before every change
+  the server keeps the note's title, text and notebook on its own disk
+  (`SBJ_UNDO_DIR`, `SBJ_UNDO_DAYS` 90, `SBJ_UNDO_MAX_MB` 500), and refuses the
+  change if it can't. `second-brain-joplin restore` lists a note's copies and
+  puts one back. `SBJ_CHANGES_PER_DAY` (100) bounds a run that goes wrong; new
+  notes don't count. `joplin_changes` lists what was changed, with no text. A
+  change needs the checksum of the text it read and the note's current title;
+  it is refused for a note in the trash, a conflict copy, an encrypted note, a
+  note that isn't Markdown, and a change that would drop a reference to an
+  attachment. Each request to Joplin carries one property, two changes to one
+  note never interleave, a repeat changes nothing, and a lost answer is checked.
+  `SBJ_REPLACE` adds the tool that rewrites a whole note. `second-brain-joplin
+  notebooks` marks notebooks `editable`.
 - **`joplin_list_notes` lists the notes in one notebook** (#84), a page at a
   time (`limit` up to 100, `offset`, `next_offset`), newest first or by title,
   with `total`. Only the notebook's own notes; the trash and conflict copies are

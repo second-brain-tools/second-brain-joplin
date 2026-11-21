@@ -11,6 +11,15 @@ DEFAULT_CONNECT_TIMEOUT = 3.0
 TIMEOUT_VAR = "SBJ_JOPLIN_TIMEOUT"
 CONNECT_TIMEOUT_VAR = "SBJ_JOPLIN_CONNECT_TIMEOUT"
 
+# The safety net of the tools that change a note (#82).
+DEFAULT_UNDO_DAYS = 90
+DEFAULT_UNDO_MAX_MB = 500
+DEFAULT_CHANGES_PER_DAY = 100
+UNDO_DAYS_VAR = "SBJ_UNDO_DAYS"
+UNDO_MAX_MB_VAR = "SBJ_UNDO_MAX_MB"
+CHANGES_PER_DAY_VAR = "SBJ_CHANGES_PER_DAY"
+REPLACE_VAR = "SBJ_REPLACE"
+
 DEFAULT_EMBEDDING_BACKEND = "fastembed"
 DEFAULT_VECTOR_STORE = "sqlite-vec"
 
@@ -57,6 +66,45 @@ def _env_switch(name: str) -> bool | None:
 def _env_list(name: str) -> tuple[str, ...]:
     """A comma-separated variable as its entries, trimmed, without empty ones."""
     return tuple(entry.strip() for entry in os.environ.get(name, "").split(",") if entry.strip())
+
+
+def default_undo_dir() -> str:
+    """Where the kept copies of changed notes go: beside the index, readable only by the user."""
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return str(base / "second-brain-joplin" / "undo")
+
+
+def _env_count(name: str, default: int) -> int | None:
+    """A whole number of at least 1 from the environment: the default when unset or empty.
+
+    None when it isn't one; the caller then keeps the default and records the name,
+    and the commands refuse to start (cli.py). Never 0: the journal can't be turned
+    off (John, 2026-11-21), and a limit of 0 would only mean "edits on, but none".
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value >= 1 else None
+
+
+def _env_flag(name: str) -> bool | None:
+    """A switch that is off unless it plainly says yes: True, False or None for a typo.
+
+    The opposite default of :func:`_env_switch`: for a power that stays off until the
+    operator asks for it. A value that is neither a yes nor a no is None: the power
+    stays off, and ``serve`` refuses to start until it is fixed.
+    """
+    word = os.environ.get(name, "").strip().lower()
+    if not word or word in _NO:
+        return False
+    if word in _YES:
+        return True
+    return None
 
 
 def _env_seconds(name: str, default: float) -> float | None:
@@ -110,6 +158,18 @@ class Settings(BaseModel):
     # Where a note may be created (scope.py); empty means the server is read-only
     # and registers no write tool at all.
     write_notebooks: tuple[str, ...] = ()
+    # Notebooks whose notes may be changed (#82): ids or titles, or `*`; empty means
+    # no tool that changes a note is registered. Separate from write_notebooks, which
+    # has meant "a new note and nothing else" since 0.5.0.
+    edit_notebooks: tuple[str, ...] = ()
+    # Whether joplin_replace_note (#80), the bluntest change, is registered too.
+    replace: bool = False
+    # The journal of old text (journal.py): where, for how long, how big; and the
+    # most changes in one day. The journal is always on.
+    undo_dir: str = ""
+    undo_days: int = DEFAULT_UNDO_DAYS
+    undo_max_mb: int = DEFAULT_UNDO_MAX_MB
+    changes_per_day: int = DEFAULT_CHANGES_PER_DAY
     # Whether the write tool is marked so that Claude Code asks on every call
     # (tools/annotations.py). On unless SBJ_ASK_EVERY_TIME plainly says no.
     ask_every_time: bool = True
@@ -141,6 +201,11 @@ class Settings(BaseModel):
         return bool(self.notebooks or self.exclude_notebooks or self.blank_filter_vars)
 
     @property
+    def edits_enabled(self) -> bool:
+        """True when ``SBJ_EDIT_NOTEBOOKS`` names notebooks whose notes may be changed."""
+        return bool(self.edit_notebooks)
+
+    @property
     def writes_enabled(self) -> bool:
         """True when ``SBJ_WRITE_NOTEBOOKS`` names anywhere a note may be created."""
         return bool(self.write_notebooks)
@@ -149,8 +214,22 @@ class Settings(BaseModel):
     def from_env(cls) -> "Settings":
         """Build settings from ``JOPLIN_*`` / ``SBJ_*`` environment variables."""
         ask_every_time = _env_switch(ASK_EVERY_TIME_VAR)
+        replace = _env_flag(REPLACE_VAR)
         timeout = _env_seconds(TIMEOUT_VAR, DEFAULT_TIMEOUT)
         connect_timeout = _env_seconds(CONNECT_TIMEOUT_VAR, DEFAULT_CONNECT_TIMEOUT)
+        counts = {
+            name: (_env_count(name, default), default)
+            for name, default in (
+                (UNDO_DAYS_VAR, DEFAULT_UNDO_DAYS),
+                (UNDO_MAX_MB_VAR, DEFAULT_UNDO_MAX_MB),
+                (CHANGES_PER_DAY_VAR, DEFAULT_CHANGES_PER_DAY),
+            )
+        }
+
+        def count(name: str) -> int:
+            value, default = counts[name]
+            return default if value is None else value
+
         return cls(
             joplin_base_url=os.environ.get("JOPLIN_BASE_URL", DEFAULT_BASE_URL),
             joplin_api_token=os.environ.get("JOPLIN_API_TOKEN", ""),
@@ -160,13 +239,21 @@ class Settings(BaseModel):
                 name
                 for name, value in ((TIMEOUT_VAR, timeout), (CONNECT_TIMEOUT_VAR, connect_timeout))
                 if value is None
-            ),
+            )
+            + tuple(name for name, (value, _) in counts.items() if value is None),
             notebooks=_env_list("SBJ_NOTEBOOKS"),
             exclude_notebooks=_env_list("SBJ_EXCLUDE_NOTEBOOKS"),
             blank_filter_vars=_set_but_blank("SBJ_NOTEBOOKS", "SBJ_EXCLUDE_NOTEBOOKS"),
             write_notebooks=_env_list("SBJ_WRITE_NOTEBOOKS"),
+            edit_notebooks=_env_list("SBJ_EDIT_NOTEBOOKS"),
+            replace=replace is True,
+            undo_dir=os.environ.get("SBJ_UNDO_DIR", "").strip() or default_undo_dir(),
+            undo_days=count(UNDO_DAYS_VAR),
+            undo_max_mb=count(UNDO_MAX_MB_VAR),
+            changes_per_day=count(CHANGES_PER_DAY_VAR),
             ask_every_time=ask_every_time is not False,
-            unreadable_switches=(ASK_EVERY_TIME_VAR,) if ask_every_time is None else (),
+            unreadable_switches=((ASK_EVERY_TIME_VAR,) if ask_every_time is None else ())
+            + ((REPLACE_VAR,) if replace is None else ()),
             embedding_backend=os.environ.get("SBJ_EMBEDDING_BACKEND", DEFAULT_EMBEDDING_BACKEND),
             embedding_model=os.environ.get("SBJ_EMBEDDING_MODEL", ""),
             vector_store=os.environ.get("SBJ_VECTOR_STORE", DEFAULT_VECTOR_STORE),

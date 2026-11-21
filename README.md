@@ -76,6 +76,7 @@ connectors (claude.ai, the Claude apps, Cowork) can reach it through a tunnel. S
 | `joplin_read` | Read a note by ID or link, a page at a time (`offset`, `max_chars` up to 100,000), or its outline, or one section (`outline`, `section`); with its notebook, tags, to-do state, attachments and a checksum | No |
 | `joplin_read_notes` | Read up to 20 notes in one call, sharing 40,000 characters | No |
 | `joplin_list_notes` | List the notes in one notebook, a page at a time (`limit` 1–100, newest first or by title) | No |
+| `joplin_changes` | List the changes the server made to notes, with no text | No. Only with `SBJ_EDIT_NOTEBOOKS` |
 | `joplin_recent` | Notes modified in the last N days (`days` 1–3650, `limit` 1–100) | No |
 | `joplin_semantic_search` | Find notes by meaning (embeddings; `limit` 1–50) | No |
 | `joplin_reindex` | Build/refresh the semantic index | The local index only, never Joplin |

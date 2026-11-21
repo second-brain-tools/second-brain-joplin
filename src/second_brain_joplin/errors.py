@@ -57,8 +57,8 @@ class JoplinAPIError(JoplinError):
 
 NOTEBOOK_FILTER_MESSAGE = (
     "The server's notebook settings (SBJ_NOTEBOOKS, SBJ_EXCLUDE_NOTEBOOKS, "
-    "SBJ_WRITE_NOTEBOOKS) don't match Joplin's notebooks, so this is refused until "
-    "they are fixed. On the server's machine, `second-brain-joplin notebooks` "
+    "SBJ_WRITE_NOTEBOOKS, SBJ_EDIT_NOTEBOOKS) don't match Joplin's notebooks, so this "
+    "is refused until they are fixed. On the server's machine, `second-brain-joplin notebooks` "
     "shows what is wrong."
 )
 

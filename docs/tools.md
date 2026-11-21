@@ -428,6 +428,30 @@ Returns:
 
 More in [Creating notes](remote-access.md#creating-notes).
 
+## `joplin_changes`
+
+Lists the changes the server made to notes, newest first. It exists when
+`SBJ_EDIT_NOTEBOOKS` is set, with the tools that change notes.
+
+| Argument | Type | Default | Allowed |
+|---|---|---|---|
+| `days` | integer | `7` | 1 to 90 |
+| `limit` | integer | `50` | 1 to 200 |
+
+Returns a list:
+
+| Field | Type | |
+|---|---|---|
+| `at` | string | When |
+| `tool` | string | Which tool (`restore` for a restore on the server's machine) |
+| `note_id` | string | The note |
+| `title` | string or null | The note's title now; null when the note is gone |
+| `old_chars`, `new_chars` | integer | Its length before and after |
+| `outcome` | string | `applied`, `failed` (nothing changed), `unconfirmed` (it can't be told yet) or `sent` |
+
+It never holds note text. A note the notebook filter hides now is left out,
+and so is a deleted note whose notebook is hidden.
+
 ## With a notebook filter
 
 [`SBJ_NOTEBOOKS` and `SBJ_EXCLUDE_NOTEBOOKS`](configuration.md#notebooks) limit
@@ -439,6 +463,7 @@ which notebooks every tool can see:
 | `joplin_search` | Leaves hidden notes out, and keeps reading until `limit` is filled or 20 pages are read. `notebook:` and `-notebook:` match visible notebooks only: a hidden notebook answers like one that doesn't exist, even when its sub-notebook is visible |
 | `joplin_recent` | Leaves hidden notes out, and keeps reading until `limit` is filled |
 | `joplin_list_notes` | Answers for a hidden notebook exactly as for one that doesn't exist |
+| `joplin_changes` | Leaves out changes to notes the filter hides now |
 | `joplin_read`, `joplin_read_notes` | Answer for a hidden note exactly as for one that doesn't exist. `notebook_path` starts at the topmost visible notebook, so a hidden parent's name never appears. An attachment that a hidden note also uses is left out, as if it didn't exist |
 | `joplin_semantic_search` | Returns only notes that are visible at that moment |
 | `joplin_reindex` | Indexes visible notes only, and drops notes that became hidden |
