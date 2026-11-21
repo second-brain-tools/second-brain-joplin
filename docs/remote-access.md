@@ -433,7 +433,25 @@ server's own rules are what make a change safe:
 Joplin's own note history isn't relied on for undoing a change: a change made
 through Joplin's API reaches it only every few minutes, and the text from before
 a change is kept as an entry of its own only when the note had been left alone
-for a while.
+for a while. (Checked on Joplin 3.7.24 with
+[the live write checks](../CONTRIBUTING.md#live-write-checks): a change made
+through the API did get one history entry within twelve minutes.)
+
+What the live write checks found on Joplin 3.7.24, and the server relies on:
+
+- Joplin's `PUT /notes/:id` changes exactly the properties it is sent, and
+  applies any it is sent (an extra `author` was saved). That is why each request
+  carries one property and nothing else. The note's title, notebook, author,
+  source and creation times were the same after an edit; `updated_time` and
+  `user_updated_time` moved.
+- `DELETE /notes/:id` without `permanent=1` moves a note to the trash, where it
+  keeps its id and gets a `deleted_time`; a change to it is refused.
+- A note created through the API with `is_conflict` set is not a conflict copy:
+  Joplin drops the flag. Conflict copies come only from sync.
+- Not checked, because it needs a second device or a person: a change made
+  while the server's Joplin is behind another device (expected: one version
+  goes to Joplin's Conflicts notebook after the tool has said it worked), and an
+  editor open on the note when it changes.
 
 ## Limits and logs
 

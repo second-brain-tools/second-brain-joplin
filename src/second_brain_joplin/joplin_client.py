@@ -46,6 +46,11 @@ _NEVER_SENT = (
     httpx.UnsupportedProtocol,
 )
 
+LOCKED_MESSAGE = (
+    "This note is locked in Joplin, so its text can't be read or changed through "
+    "Joplin's API. Unlock it in Joplin first."
+)
+
 # The note properties a change may send Joplin (update_note).
 CHANGEABLE = frozenset({"body", "title", "parent_id"})
 
@@ -160,6 +165,10 @@ class JoplinClient:
         if response.is_success:
             return
         status = response.status_code
+        # Joplin's note lock (3.7): a locked note's text can't be read or changed
+        # through the API, and Joplin answers 403 saying so. That isn't the token.
+        if status == 403 and "locked" in response.text.lower():
+            raise JoplinAPIError(LOCKED_MESSAGE)
         if status in (401, 403):
             raise JoplinAuthError(
                 "Joplin rejected the request — check that JOPLIN_API_TOKEN is set and "

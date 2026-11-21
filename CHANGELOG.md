@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Live write checks against a real Joplin** (#81):
+  `scripts/live_write_check.py --yes-write-to <env file>` runs every write tool
+  in a temporary notebook it deletes again, checks the vault's counts are
+  unchanged, and prints no note text. What it found on Joplin 3.7.24 is in
+  [docs/remote-access.md](docs/remote-access.md#changing-notes). Run before a
+  release that changes a write tool ([CONTRIBUTING.md](CONTRIBUTING.md)).
 - **`joplin_create_notes` creates several notes in one call** (#69): up to
   `SBJ_CREATE_NOTES_MAX` (at most 20, 100,000 characters together), so one
   approval covers a set, such as the notes out of a weekly review. Off unless
@@ -125,6 +131,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A locked note was reported as a wrong token.** Joplin answers 403 for a
+  note its note lock protects; the server said to check `JOPLIN_API_TOKEN`. It
+  now says the note is locked.
 - **A notebook filter could be partly seen through a search's `notebook:`
   word** (#97). Joplin matches `notebook:"Name"` against every notebook title,
   with `LIKE` wildcards, and takes in each match's sub-notebooks. With a filter

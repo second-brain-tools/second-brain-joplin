@@ -370,3 +370,19 @@ async def test_requests_to_joplin_ignore_proxy_settings(
             await client.aclose()
         assert proxy.request_lines == []
         assert joplin.request_lines == ["GET /ping?token=tok HTTP/1.1"]
+
+
+@respx.mock
+async def test_a_locked_note_is_named_as_such_not_as_a_bad_token(client: JoplinClient) -> None:
+    respx.get(f"{BASE_URL}/notes/x").mock(
+        return_value=httpx.Response(
+            403, json={"error": "The body of a locked note cannot be read through the API"}
+        )
+    )
+    with pytest.raises(JoplinAPIError, match="locked in Joplin"):
+        await client.get_note("x")
+    respx.get(f"{BASE_URL}/notes/y").mock(
+        return_value=httpx.Response(403, json={"error": "Invalid token"})
+    )
+    with pytest.raises(JoplinAuthError):
+        await client.get_note("y")
