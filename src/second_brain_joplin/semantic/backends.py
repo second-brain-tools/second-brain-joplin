@@ -23,6 +23,13 @@ from ..config import Settings
 from ..errors import SemanticUnavailableError
 from .types import ChunkRecord, Embedder, QueryHit, VectorIndex
 
+NO_EXTENSIONS_HINT = (
+    "The sqlite-vec index needs a Python that can load SQLite extensions, and this "
+    "one can't (some macOS and pyenv builds leave it out). Run the server on uv's own "
+    "Python (`uv python install 3.13`, then `uvx --python 3.13 ...`), or set "
+    "SBJ_VECTOR_STORE=chroma with the [semantic-chroma] extra."
+)
+
 _FASTEMBED_DEFAULT = "BAAI/bge-small-en-v1.5"
 _ST_DEFAULT = "BAAI/bge-m3"
 
@@ -109,6 +116,10 @@ class _SqliteVecIndex:
         except ImportError as exc:  # pragma: no cover - env-dependent
             raise SemanticUnavailableError(_install_hint("sqlite-vec")) from exc
         self._target_model = model_name
+        if not hasattr(sqlite3.Connection, "enable_load_extension"):
+            # Some Python builds (macOS's framework Python, some pyenv builds) leave out
+            # SQLite's extension loading, which sqlite-vec needs.
+            raise SemanticUnavailableError(NO_EXTENSIONS_HINT)
         self._conn = sqlite3.connect(str(Path(index_dir) / "index.db"), check_same_thread=False)
         self._conn.enable_load_extension(True)
         sqlite_vec.load(self._conn)

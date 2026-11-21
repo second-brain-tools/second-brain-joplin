@@ -9,6 +9,7 @@ so no embedding model is downloaded.
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fakes import FakeVectorIndex
@@ -20,8 +21,13 @@ MODEL = "test-model"
 Opener = Callable[[Path], VectorIndex]
 
 
+CAN_LOAD_EXTENSIONS = hasattr(sqlite3.Connection, "enable_load_extension")
+
+
 def _sqlite(index_dir: Path) -> VectorIndex:
     pytest.importorskip("sqlite_vec")
+    if not CAN_LOAD_EXTENSIONS:
+        pytest.skip("this Python can't load SQLite extensions (GitHub's macOS runner)")
     from second_brain_joplin.semantic.backends import _SqliteVecIndex
 
     return _SqliteVecIndex(str(index_dir), MODEL)
@@ -152,6 +158,8 @@ def test_chunks_and_marks_survive_reopening_the_index(opener: Opener, tmp_path: 
 def test_an_index_made_before_the_marks_existed_still_opens(tmp_path: Path) -> None:
     """mercury's index file predates the mark table: it must work without a rebuild."""
     sqlite_vec = pytest.importorskip("sqlite_vec")
+    if not CAN_LOAD_EXTENSIONS:
+        pytest.skip("this Python can't load SQLite extensions (GitHub's macOS runner)")
     conn = sqlite3.connect(str(tmp_path / "index.db"))
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
@@ -181,3 +189,19 @@ def test_an_index_made_before_the_marks_existed_still_opens(tmp_path: Path) -> N
     index.mark_empty("e", "100")
     assert index.empty_versions() == {"e": "100"}
     assert [hit.note_id for hit in index.query([1.0, 0.0, 0.0, 0.0], 1)] == ["a"]
+
+
+def test_a_python_that_cannot_load_extensions_gets_a_clear_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("sqlite_vec")
+    from second_brain_joplin.errors import SemanticUnavailableError
+    from second_brain_joplin.semantic import backends
+    from second_brain_joplin.semantic.backends import _SqliteVecIndex
+
+    class _NoExtensions:  # a Connection type built without extension loading
+        pass
+
+    monkeypatch.setattr(backends, "sqlite3", SimpleNamespace(Connection=_NoExtensions))
+    with pytest.raises(SemanticUnavailableError, match="can load SQLite extensions"):
+        _SqliteVecIndex(str(tmp_path), MODEL)

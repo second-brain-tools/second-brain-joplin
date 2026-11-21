@@ -143,6 +143,9 @@ closed.
 
 ### Fixed
 
+- **Semantic search on a Python without SQLite extension loading** (some macOS
+  and pyenv builds) failed with an `AttributeError`. It now says what to do:
+  run on uv's own Python, or use the Chroma store.
 - **A locked note was reported as a wrong token.** Joplin answers 403 for a
   note its note lock protects; the server said to check `JOPLIN_API_TOKEN`. It
   now says the note is locked.
