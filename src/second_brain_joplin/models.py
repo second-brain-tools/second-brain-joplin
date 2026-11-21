@@ -36,11 +36,12 @@ def excerpt(body: str) -> str:
 
 
 class Note(BaseModel):
-    """A Joplin note, or one page of a long one.
+    """A Joplin note, or one page of a long one, or of one section, or its outline.
 
-    ``body`` holds the characters from ``offset``; ``total_chars`` is the whole
-    body's length, and ``next_offset`` is where the next page starts, or None
-    when this page reaches the end.
+    ``body`` holds the characters from ``offset`` of what was asked for: the whole
+    body, one section (``section_path``, ``section_heading``) or the outline
+    (``is_outline``). ``total_chars`` is that text's length, and ``next_offset`` is
+    where the next page starts, or None when this page reaches the end.
     """
 
     id: str
@@ -52,6 +53,9 @@ class Note(BaseModel):
     offset: int = 0
     total_chars: int = 0
     next_offset: int | None = None
+    section_path: str | None = None
+    section_heading: str | None = None
+    is_outline: bool = False
 
 
 class RecentNote(BaseModel):

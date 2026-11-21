@@ -103,13 +103,18 @@ by what it means when you don't know its words, use
 
 ## `joplin_read`
 
-Reads one note's markdown. A long note comes a page at a time.
+Reads one note's markdown, or its outline, or one section of it. A long text
+comes a page at a time.
 
 | Argument | Type | Default | Allowed |
 |---|---|---|---|
 | `note_id` | string | required | A note's id: 32 hexadecimal characters |
 | `offset` | integer | `0` | 0 or more: the character to start from |
 | `max_chars` | integer | `50000` | 1 to 100,000: the most characters to return |
+| `outline` | boolean | `false` | `true`: the note's headings instead of its text |
+| `section` | string or null | null | One section, subsections included: its path (`1.2`) or its heading's exact text |
+
+`outline` and `section` can't be used together.
 
 Returns:
 
@@ -117,13 +122,16 @@ Returns:
 |---|---|---|
 | `id` | string | The note's id |
 | `title` | string | Its title |
-| `body` | string | Up to `max_chars` characters of markdown, starting at `offset` |
+| `body` | string | Up to `max_chars` characters of markdown, starting at `offset`: of the whole note, of the section, or of the outline |
 | `parent_id` | string | The id of the notebook it is in |
 | `created_time` | string | When it was created |
 | `updated_time` | string | When it was last changed |
 | `offset` | integer | Where this page starts |
-| `total_chars` | integer | The length of the whole note |
+| `total_chars` | integer | The length of what is being read: the note, the section or the outline |
 | `next_offset` | integer or null | Where the next page starts; null when this page reaches the end |
+| `section_path` | string or null | The section read, by its path; null when it wasn't one section |
+| `section_heading` | string or null | That section's heading |
+| `is_outline` | boolean | `true` when `body` is the outline |
 
 ```json
 {
@@ -142,6 +150,34 @@ Returns:
 To read a long note in full, call again with `offset` set to the last
 `next_offset` until it comes back null. Claude limits how much one tool result
 may hold, which is why a page stops at 100,000 characters.
+
+For a long note, ask for the outline first, then read the one section you need.
+The outline is one line per section, `path`, its length in characters and its
+heading, separated by tabs:
+
+```
+0	48
+1	1612	Plan
+1.1	420	Budget
+1.2	988	Schedule
+2	310	Log
+```
+
+What counts as a heading and a section:
+
+- **A heading** is a line that starts with one to six `#` and a space, at most
+  three spaces in, outside a fenced code block (```` ``` ```` or `~~~`). Text
+  underlined with `===` or `---` is not a heading here, although Joplin's own
+  editor shows it as one.
+- **A section** runs from its heading to the next heading of the same or a
+  higher level, so it includes its subsections. Section `0` is the text before
+  the first heading, when there is any. A note with no headings is section `0`
+  alone.
+- **Paths count by nesting**, not by the number of `#`: a `###` straight under a
+  `#` is `1.1`.
+- **A heading's text must name one section.** A heading that appears twice is
+  refused with the paths of both, and a missing one with the list of sections
+  the note has. Whitespace inside the heading doesn't matter.
 
 A note that doesn't exist, and a note the notebook filter hides, get the same
 answer: `The requested Joplin resource was not found.`

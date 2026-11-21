@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Read a long note by its outline, or one section of it** (#99).
+  `joplin_read` takes `outline: true` (one line per section: its path, its
+  length and its heading) or `section` (a path such as `1.2`, or a heading's
+  exact text), and pages within either as it does through a note. Only `#`
+  headings outside code blocks count, the same rule the edit tools will use, so
+  a section read is the section an edit lands in
+  ([docs/tools.md](docs/tools.md#joplin_read)).
 - **The README compares this server with Joplin's built-in MCP server**
   (Joplin 3.7, a beta feature, off by default): when Joplin's own is the
   simpler choice, what this one adds (use from anywhere, sign-in, hidden

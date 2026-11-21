@@ -4,11 +4,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastmcp import Context, FastMCP
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinError, JoplinNotFoundError, NotebookFilterError
 from ..joplin_client import JsonDict
+from ..markdown import SectionError, find_section
+from ..markdown import outline as _outline
 from ..models import (
     MAX_RECENT_DAYS,
     MAX_RECENT_LIMIT,
@@ -104,13 +107,37 @@ def register(mcp: FastMCP) -> None:
         note_id: NoteId,
         offset: Annotated[int, Field(ge=0)] = 0,
         max_chars: Annotated[int, Field(ge=1, le=READ_MAX_CHARS)] = READ_DEFAULT_CHARS,
+        outline: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Return the note's headings instead of its text: one line per section, "
+                    "'path<TAB>characters<TAB>heading'. Can't be combined with section."
+                )
+            ),
+        ] = False,
+        section: Annotated[
+            str | None,
+            Field(
+                max_length=300,
+                description=(
+                    "Return only this section, subsections included: its path from the "
+                    "outline ('1.2'; '0' is the text before the first heading) or its "
+                    "heading's exact text, which must appear once."
+                ),
+            ),
+        ] = None,
     ) -> Note:
         """Read a note's markdown by its ID, a page at a time for long notes.
 
-        Returns up to ``max_chars`` characters of the body starting at ``offset``.
-        When ``next_offset`` is set, call again with ``offset=next_offset`` for the
-        rest; ``total_chars`` is the whole body's length.
+        Returns up to ``max_chars`` characters starting at ``offset``. When
+        ``next_offset`` is set, call again with ``offset=next_offset`` for the rest;
+        ``total_chars`` is the length of what is being read. For a long note, ask
+        for its ``outline`` first, then read one ``section``. Only ``#`` headings
+        outside code blocks count as headings.
         """
+        if outline and section is not None:
+            raise ToolError("Ask for the outline or for one section, not both.")
         app = app_context(ctx)
         try:
             scope = await app.scope()
@@ -121,17 +148,32 @@ def register(mcp: FastMCP) -> None:
         except (JoplinError, NotebookFilterError) as exc:
             raise tool_error(exc) from exc
         body: str = note.get("body", "")
+        text = body
+        section_path: str | None = None
+        section_heading: str | None = None
+        if outline:
+            text = _outline(body)
+        elif section is not None:
+            try:
+                found = find_section(body, section)
+            except SectionError as exc:
+                raise ToolError(str(exc)) from exc
+            text = body[found.start : found.end]
+            section_path, section_heading = found.path, found.heading
         end = offset + max_chars
         return Note(
             id=note["id"],
             title=note.get("title", ""),
-            body=body[offset:end],
+            body=text[offset:end],
             parent_id=note.get("parent_id", ""),
             created_time=epoch_ms_to_iso(note["created_time"]),
             updated_time=epoch_ms_to_iso(note["updated_time"]),
             offset=offset,
-            total_chars=len(body),
-            next_offset=end if end < len(body) else None,
+            total_chars=len(text),
+            next_offset=end if end < len(text) else None,
+            section_path=section_path,
+            section_heading=section_heading,
+            is_outline=outline,
         )
 
     @mcp.tool(annotations=READ_ONLY)
