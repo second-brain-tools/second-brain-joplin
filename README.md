@@ -214,7 +214,7 @@ The [PARA method](https://fortelabs.com/blog/para/) works well with Joplin. See 
 | [v0.4 — Remote Access](https://github.com/second-brain-tools/second-brain-joplin/milestone/6) | Streamable HTTP, GitHub sign-in, Claude custom connector | Done |
 | [v0.5 — Write Workflow](https://github.com/second-brain-tools/second-brain-joplin/milestone/4) | Notebook filter; note creation you allow and approve | Done |
 | [v1.0 — Publish](https://github.com/second-brain-tools/second-brain-joplin/milestone/5) | PyPI, full docs, templates | Done |
-| [v1.2 — Edit](https://github.com/second-brain-tools/second-brain-joplin/milestone/7) | Change notes safely; search results that say where the match is; reading by section | Planned |
+| [v1.2 — Edit](https://github.com/second-brain-tools/second-brain-joplin/milestone/7) | Change notes safely; search results that say where the match is; reading by section | Done |
 | [v1.3 — Organise](https://github.com/second-brain-tools/second-brain-joplin/milestone/8) | Move, trash, tags, to-dos, notebooks and attachments | Planned |
 
 ---

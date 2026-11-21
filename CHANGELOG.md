@@ -6,31 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] — Edit
+
+Claude can now change notes, not only add them, under a safety net that the
+server keeps itself: an edit list of notebooks, a copy of each note kept before
+it changes, a daily limit, and a check that the note hasn't changed since it
+was read. Reading and searching say more: a note's outline and one section,
+several notes at once, a notebook's notes, and where each search hit matched.
+A server that sets nothing new offers the same writes as before (new notes
+only, where `SBJ_WRITE_NOTEBOOKS` allows); the read tools change for everyone,
+and the leak of hidden notebook names through a search's `notebook:` word is
+closed.
+
 ### Added
 
-- **Live write checks against a real Joplin** (#81):
-  `scripts/live_write_check.py --yes-write-to <env file>` runs every write tool
-  in a temporary notebook it deletes again, checks the vault's counts are
-  unchanged, and prints no note text. What it found on Joplin 3.7.24 is in
-  [docs/remote-access.md](docs/remote-access.md#changing-notes). Run before a
-  release that changes a write tool ([CONTRIBUTING.md](CONTRIBUTING.md)).
-- **`joplin_create_notes` creates several notes in one call** (#69): up to
-  `SBJ_CREATE_NOTES_MAX` (at most 20, 100,000 characters together), so one
-  approval covers a set, such as the notes out of a weekly review. Off unless
-  that setting is given: a server upgraded with its settings unchanged offers
-  the same tools as before. Every note is checked before any is written, and
-  the same note twice is refused; writing stops at the first failure and each
-  note's `outcome` says what exists; the same call again creates only what is
-  missing. Each note gets `joplin_create_note`'s checks and audit lines, and its
-  `chars` and `body_sha256`.
-- **`joplin_replace_note` rewrites the whole text of a note** (#80), for a
-  short note rebuilt each time, which until now became a new note every time
-  while the old copy waited to be deleted. It needs `SBJ_REPLACE` on as well as
-  `SBJ_EDIT_NOTEBOOKS`, runs under the same safety net, keeps the title,
-  notebook and tags, refuses an empty text and one that drops an attachment
-  reference, and answers `already_replaced` without writing when the note
-  already holds the text. This replaces the tag-based design #80 was first
-  filed with.
 - **`joplin_edit_note` changes part of a note, or adds to it** (#83, which
   covers #70). `edits` replace exact text from the note, each found once, in
   order; `append` adds text at the end of a section (by heading or path) or of
@@ -40,7 +29,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   if any part doesn't fit, nothing is written; everything outside the change
   stays byte for byte, in the note's own line endings. The result carries the
   old and new lengths and checksums, so a change can be checked without reading
-  the note again. It runs under the safety net above, is marked destructive, and
+  the note again. It runs under the safety net of #82 (next), is marked destructive, and
   carries the ask-every-time mark under `SBJ_ASK_EVERY_TIME`.
   `joplin_create_note` now returns `chars` and `body_sha256` too.
 - **A safety net for changing notes** (#82), under the tools that change a
@@ -59,11 +48,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   note never interleave, a repeat changes nothing, and a lost answer is checked.
   `SBJ_REPLACE` adds the tool that rewrites a whole note. `second-brain-joplin
   notebooks` marks notebooks `editable`.
-- **`joplin_list_notes` lists the notes in one notebook** (#84), a page at a
-  time (`limit` up to 100, `offset`, `next_offset`), newest first or by title,
-  with `total`. Only the notebook's own notes; the trash and conflict copies are
-  left out. "What is in my Inbox?" had no direct answer before: a search needs a
-  query and stopped at 50.
+- **`joplin_replace_note` rewrites the whole text of a note** (#80), for a
+  short note rebuilt each time, which until now became a new note every time
+  while the old copy waited to be deleted. It needs `SBJ_REPLACE` on as well as
+  `SBJ_EDIT_NOTEBOOKS`, runs under the same safety net, keeps the title,
+  notebook and tags, refuses an empty text and one that drops an attachment
+  reference, and answers `already_replaced` without writing when the note
+  already holds the text. This replaces the tag-based design #80 was first
+  filed with.
+- **`joplin_create_notes` creates several notes in one call** (#69): up to
+  `SBJ_CREATE_NOTES_MAX` (at most 20, 100,000 characters together), so one
+  approval covers a set, such as the notes out of a weekly review. Off unless
+  that setting is given: a server upgraded with its settings unchanged offers
+  the same tools as before. Every note is checked before any is written, and
+  the same note twice is refused; writing stops at the first failure and each
+  note's `outcome` says what exists; the same call again creates only what is
+  missing. Each note gets `joplin_create_note`'s checks and audit lines, and its
+  `chars` and `body_sha256`.
 - **`joplin_read` says more about a note, and `joplin_read_notes` reads up to
   20 at once** (#85). A read now returns the note's `notebook` and
   `notebook_path` (from the topmost visible notebook down), its `tags`, the
@@ -75,6 +76,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   short notes whole and the rest split over the long ones, and missing or
   hidden ids are listed alike in `not_found` (a locked note too).
   `attachments` are the ones the note's own text refers to.
+- **`joplin_list_notes` lists the notes in one notebook** (#84), a page at a
+  time (`limit` up to 100, `offset`, `next_offset`), newest first or by title,
+  with `total`. Only the notebook's own notes; the trash and conflict copies are
+  left out. "What is in my Inbox?" had no direct answer before: a search needs a
+  query and stopped at 50.
 - **Search results say where the match is** (#97). Each `joplin_search` hit
   gains `notebook_id`, `updated_time`, a `snippet` around the first word of the
   query found in the text, and the `section` and `section_heading` that hold
@@ -87,15 +93,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   headings outside code blocks count, the same rule `joplin_edit_note` uses, so
   a section read is the section an edit lands in
   ([docs/tools.md](docs/tools.md#joplin_read)).
+- **`SBJ_JOPLIN_TIMEOUT` and `SBJ_JOPLIN_CONNECT_TIMEOUT`** (#86): how long
+  Joplin has to answer a request (10 seconds, as before) and to accept the
+  connection (3 seconds). A value that isn't a number of seconds above 0 stops
+  `serve`, `reindex`, `notebooks` and `restore` from starting.
 - **The README compares this server with Joplin's built-in MCP server**
   (Joplin 3.7, a beta feature, off by default): when Joplin's own is the
   simpler choice, what this one adds (use from anywhere, sign-in, hidden
   notebooks, write limits, a log of calls), and the aim to match every tool of
   Joplin's under those rules in 1.2 and 1.3. The Roadmap lists both.
-- **`SBJ_JOPLIN_TIMEOUT` and `SBJ_JOPLIN_CONNECT_TIMEOUT`** (#86): how long
-  Joplin has to answer a request (10 seconds, as before) and to accept the
-  connection (3 seconds). A value that isn't a number of seconds above 0 stops
-  `serve`, `reindex`, `notebooks` and `restore` from starting.
+- **Live write checks against a real Joplin** (#81):
+  `scripts/live_write_check.py --yes-write-to <env file>` runs every write tool
+  in a temporary notebook it deletes again, checks the vault's counts are
+  unchanged, and prints no note text. What it found on Joplin 3.7.24 is in
+  [docs/remote-access.md](docs/remote-access.md#changing-notes). Run before a
+  release that changes a write tool ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ### Changed
 
@@ -593,7 +605,8 @@ Initial project skeleton — the MCP server starts and all tools are stubbed.
 - Documentation: install, notebook structure (PARA), project management,
   releasing runbook, security policy, and an inspiration/reference note.
 
-[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v0.5.0...v1.0.0
