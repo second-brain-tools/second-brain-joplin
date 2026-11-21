@@ -333,7 +333,7 @@ assistant can pass on. These are the ones the server writes itself;
 | The error says | It means |
 |---|---|
 | `Joplin is unreachable at <address> — is Joplin Desktop running with the Web Clipper service enabled?` | Nothing answered at Joplin's address |
-| `Joplin didn't answer at <address> within 10 seconds — is Joplin Desktop running and responsive?` | Joplin didn't answer in time |
+| `Joplin didn't answer at <address> within 10 seconds — is Joplin Desktop running and responsive?` | Joplin didn't answer in time (the number is [`SBJ_JOPLIN_TIMEOUT`](configuration.md#joplin)). For 30 seconds after Joplin was found not answering, calls get this message at once, without asking Joplin |
 | `Joplin rejected the request — check that JOPLIN_API_TOKEN is set and matches the token in Joplin's Web Clipper settings.` | The token is missing or wrong |
 | `The requested Joplin resource was not found.` | No note has that id, or the filter hides it |
 | `Joplin returned an unexpected response (HTTP <status>).` | Joplin answered with an error of its own |

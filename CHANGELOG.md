@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`SBJ_JOPLIN_TIMEOUT` and `SBJ_JOPLIN_CONNECT_TIMEOUT`** (#86): how long
+  Joplin has to answer a request (10 seconds, as before) and to accept the
+  connection (3 seconds). A value that isn't a number of seconds above 0 stops
+  `serve`, `reindex` and `notebooks` from starting.
+
 ### Changed
 
 - **The repository moved to
@@ -24,6 +31,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dedicated to the public domain (CC0 1.0), so the notes you make from them
   carry no conditions. The package's metadata now names the license as an SPDX
   expression (`AGPL-3.0-or-later`).
+
+- **A Joplin that hangs no longer costs ten seconds on every call** (#86). When
+  a request runs out of time and Joplin doesn't answer its `/ping` either (or it
+  is the second timeout in a row), every call for the next 30 seconds is refused
+  at once with the same message, without being sent; then one ping decides
+  whether calls go ahead. It applies to the tools, `joplin_reindex` and the
+  background index sync alike. In a real outage on 2026-11-19 every call took
+  the full ten seconds to fail. A slow answer on a Joplin that answers its ping
+  holds nothing, a note created while Joplin hangs is still reported as "may or
+  may not have been created", and `/healthz` still asks Joplin every time.
+- **The audit log names what failed** (#86): a failed call's line ends in
+  `outcome=error:JoplinUnavailableError`, `error:JoplinNotFoundError` and so on,
+  by class name only, where it said `error:ToolError` for every one.
 
 ### Fixed
 

@@ -13,6 +13,7 @@ import pytest
 import respx
 from fakes import FakeEmbedder, FakeVectorIndex
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import StaticTokenVerifier
 from fastmcp.utilities.tests import ASGIServer, asgi_server
 from mcp.shared.exceptions import MCPError
@@ -21,9 +22,15 @@ from second_brain_joplin.audit import (
     NO_DEBUG_LOGGERS,
     QUIET_LOGGERS,
     configure_logging,
+    outcome_name,
     rate_limit,
 )
 from second_brain_joplin.config import Settings
+from second_brain_joplin.errors import (
+    JoplinUnavailableError,
+    NotebookFilterError,
+    SemanticUnavailableError,
+)
 from second_brain_joplin.remote import HttpOptions, http_app_kwargs
 from second_brain_joplin.semantic.service import SEARCH_CONCURRENCY, SemanticSearchService
 from second_brain_joplin.server import create_server
@@ -165,6 +172,44 @@ async def test_failed_calls_are_logged_by_type_not_message(
     audit = [r.getMessage() for r in caplog.records if r.name == "second_brain_joplin.audit"]
     assert audit and audit[0].startswith("tool=joplin_read caller=65598 outcome=error")
     assert QUERY not in " ".join(audit)
+
+
+@respx.mock
+async def test_a_failure_of_ours_is_logged_by_its_own_name(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    missing = "f" * 32
+    respx.get(f"{BASE_URL}/notes/{missing}").mock(return_value=httpx.Response(404))
+    respx.get(f"{BASE_URL}/search").mock(side_effect=httpx.ReadTimeout("slow"))
+    respx.get(f"{BASE_URL}/ping").mock(side_effect=httpx.ReadTimeout("slow"))
+    configure_logging()
+    caplog.set_level(logging.INFO, logger="second_brain_joplin")
+    async with serving() as running, running.client(auth="john") as client:
+        await client.call_tool("joplin_read", {"note_id": missing}, raise_on_error=False)
+        for _ in range(2):  # the timeout, then a call refused by the hold
+            await client.call_tool("joplin_search", {"query": QUERY}, raise_on_error=False)
+    audit = [r.getMessage() for r in caplog.records if r.name == "second_brain_joplin.audit"]
+    outcomes = [line.split(" outcome=")[1].split(" ")[0] for line in audit]
+    assert outcomes == [
+        "error:JoplinNotFoundError",
+        "error:JoplinUnavailableError",
+        "error:JoplinUnavailableError",
+    ]
+    assert QUERY not in " ".join(audit)
+
+
+def test_outcome_names_only_this_packages_causes() -> None:
+    def raised_from(cause: BaseException | None) -> ToolError:
+        error = ToolError("a message that may quote the caller")
+        error.__cause__ = cause
+        return error
+
+    assert outcome_name(raised_from(JoplinUnavailableError("x"))) == "JoplinUnavailableError"
+    assert outcome_name(raised_from(NotebookFilterError("detail"))) == "NotebookFilterError"
+    assert outcome_name(raised_from(SemanticUnavailableError("x"))) == "SemanticUnavailableError"
+    assert outcome_name(raised_from(None)) == "ToolError"
+    assert outcome_name(raised_from(KeyError("x"))) == "ToolError"  # not ours: not named
+    assert outcome_name(ValueError("x")) == "ValueError"
 
 
 @respx.mock

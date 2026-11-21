@@ -10,7 +10,12 @@ import respx
 from fakes import FakeEmbedder, FakeJoplin, FakeVectorIndex, SharedVectorIndex
 
 from second_brain_joplin.config import Settings
-from second_brain_joplin.errors import JoplinAPIError, JoplinConnectionError, NotebookFilterError
+from second_brain_joplin.errors import (
+    JoplinAPIError,
+    JoplinConnectionError,
+    JoplinUnavailableError,
+    NotebookFilterError,
+)
 from second_brain_joplin.joplin_client import JoplinClient
 from second_brain_joplin.semantic.service import SemanticSearchService
 from second_brain_joplin.semantic.types import ChunkRecord, Embedder, VectorIndex
@@ -630,3 +635,23 @@ async def test_a_search_without_auto_sync_does_not_wait_behind_a_running_sync() 
     finally:
         slow.release.set()
         await syncing
+
+
+@respx.mock
+async def test_a_sync_inside_a_hold_fails_at_once_and_leaves_the_index_alone() -> None:
+    joplin = FakeJoplin()
+    note = joplin.note("Plan", "apple plan", joplin.notebook("Work"))
+    joplin.install()
+    index = FakeVectorIndex()
+    service = _service(index=index)
+    await service.sync()
+
+    joplin.hung = True
+    with pytest.raises(JoplinUnavailableError):
+        await service.sync()
+    asked = len(joplin.requests)
+    with pytest.raises(JoplinUnavailableError):
+        await service.sync()  # the background sync's next run: held
+
+    assert len(joplin.requests) == asked
+    assert index.note_versions() == {note: "100"}

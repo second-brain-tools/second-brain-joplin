@@ -56,9 +56,22 @@ service enabled?"** Nothing is listening at Joplin's address.
   Service**.
 - If you changed the port in Joplin, set `JOPLIN_BASE_URL` to match.
 
+<a id="joplin-didnt-answer"></a>
 **"Joplin didn't answer at … within 10 seconds".** Joplin is there and didn't
 answer in time. Right after you enable the Web Clipper service, or while Joplin
 is starting or busy with a large sync, this can last a minute. Try again.
+
+- If Joplin doesn't answer its `/ping` either, the server stops asking it for
+  30 seconds: calls in that time get this message at once, instead of each
+  waiting out the timeout. The first call after that pings Joplin and goes ahead
+  if it answers. Nothing needs restarting.
+- If this keeps happening, Joplin is hung: quit it and open it again. A Joplin
+  that was quit gives "Joplin is unreachable" at once.
+- If only large searches run out of time, raise `SBJ_JOPLIN_TIMEOUT`
+  ([configuration](configuration.md#joplin)).
+- In HTTP mode the log line of such a call ends in
+  `outcome=error:JoplinUnavailableError`, so an outage can be counted from the
+  log.
 
 **"Joplin rejected the request — check that JOPLIN_API_TOKEN is set …".** The
 token is missing or isn't the one Joplin shows.
@@ -276,10 +289,12 @@ The server writes its log to standard error.
 - **Claude Desktop:** one log per server, `mcp-server-second-brain-joplin.log`,
   in `~/Library/Logs/Claude` on macOS and `%APPDATA%\Claude\logs` on Windows.
 - **HTTP mode:** wherever your service manager sends standard error. One line
-  per tool call says which tool, who called, the outcome and how long it took:
+  per tool call says which tool, who called, the outcome and how long it took.
+  A failed call names what failed, by the error's class name only:
 
   ```
   2026-11-12 16:40:02,113 INFO second_brain_joplin.audit: tool=joplin_search caller=65598 outcome=ok ms=41
+  2026-11-12 16:41:10,502 INFO second_brain_joplin.audit: tool=joplin_read caller=65598 outcome=error:JoplinUnavailableError ms=0
   ```
 
 The logs never hold a note's title or text, a search query or a token

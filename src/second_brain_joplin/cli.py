@@ -109,6 +109,7 @@ async def run_reindex(full: bool) -> SyncStats:
 
 
 def reindex(args: argparse.Namespace) -> None:
+    refuse_unreadable_settings(Settings.from_env())
     stats = asyncio.run(run_reindex(args.full))
     print(
         f"added={stats.added} updated={stats.updated} deleted={stats.deleted} "
@@ -185,23 +186,27 @@ async def fetch_notebooks(settings: Settings) -> tuple[list[JsonDict], list[Json
         await client.aclose()
 
 
-def refuse_unreadable_switches(settings: Settings) -> None:
-    """Refuse a yes-or-no setting whose value is neither.
+def refuse_unreadable_settings(settings: Settings) -> None:
+    """Refuse a setting whose value can't be read: a switch or a number of seconds.
 
-    The setting itself stays on (config.py), so a typo exposes nothing. Refusing
-    is so the operator finds out that the value didn't do what they meant.
+    The setting itself keeps its safe value (config.py): a switch stays on, a
+    timeout keeps its default, so a typo exposes nothing. Refusing is so the
+    operator finds out that the value didn't do what they meant.
     """
-    if settings.unreadable_switches:
-        problems = "; ".join(
-            f"{name} must be true or false, got {os.environ.get(name, '')!r}"
-            for name in settings.unreadable_switches
-        )
-        raise ServeConfigError(problems)
+    problems = [
+        f"{name} must be true or false, got {os.environ.get(name, '')!r}"
+        for name in settings.unreadable_switches
+    ] + [
+        f"{name} must be a number of seconds above 0, got {os.environ.get(name, '')!r}"
+        for name in settings.unreadable_numbers
+    ]
+    if problems:
+        raise ServeConfigError("; ".join(problems))
 
 
 def notebooks(_args: argparse.Namespace) -> None:
     settings = Settings.from_env()
-    refuse_unreadable_switches(settings)
+    refuse_unreadable_settings(settings)
     folders, notes_index = asyncio.run(fetch_notebooks(settings))
     try:
         scope = scope_of(settings, folders)
@@ -285,7 +290,7 @@ def serve(args: argparse.Namespace) -> None:
     transport = args.transport or os.environ.get("SBJ_TRANSPORT") or "stdio"
     if transport not in TRANSPORTS:
         raise ServeConfigError(f"SBJ_TRANSPORT must be one of {', '.join(TRANSPORTS)}")
-    refuse_unreadable_switches(Settings.from_env())
+    refuse_unreadable_settings(Settings.from_env())
     if transport == "stdio":
         http_only = [
             flag

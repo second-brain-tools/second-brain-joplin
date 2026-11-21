@@ -21,11 +21,18 @@ import sys
 import time
 from typing import Any
 
+from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 
+from .errors import JoplinError, NotebookFilterError, SemanticUnavailableError
+
 logger = logging.getLogger("second_brain_joplin.audit")
+
+# This package's own failures: a tool turns them into a ToolError, and the log
+# names them instead, so an operator can count outages from it.
+_NAMED_CAUSES = (JoplinError, NotebookFilterError, SemanticUnavailableError)
 
 # Loggers that would print request URLs, and with them the Joplin token.
 QUIET_LOGGERS = ("httpx", "httpcore", "httpx2", "httpcore2")
@@ -34,6 +41,17 @@ QUIET_LOGGERS = ("httpx", "httpcore", "httpx2", "httpcore2")
 NO_DEBUG_LOGGERS = ("fastmcp", "mcp")
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 ANONYMOUS = "anonymous"
+
+
+def outcome_name(exc: BaseException) -> str:
+    """The class name the log gives a failed call: the cause, if it is one of ours.
+
+    A class name only, never the message: messages can quote what the caller sent.
+    """
+    cause = exc.__cause__
+    if isinstance(exc, ToolError) and isinstance(cause, _NAMED_CAUSES):
+        return type(cause).__name__
+    return type(exc).__name__
 
 
 def caller_id(_context: MiddlewareContext[Any] | None = None) -> str:
@@ -61,7 +79,7 @@ class AuditMiddleware(Middleware):
                 "tool=%s caller=%s outcome=error:%s ms=%d",
                 tool,
                 who,
-                type(exc).__name__,
+                outcome_name(exc),
                 (time.perf_counter() - started) * 1000,
             )
             raise

@@ -73,9 +73,22 @@ Things to know:
 |---|---|---|
 | `JOPLIN_API_TOKEN` | none | **Required.** The token from Joplin Desktop: **Tools → Options → Web Clipper** (on macOS, **Joplin → Settings → Web Clipper**). Without it the server still starts, and a tool that asks Joplin for anything answers that Joplin rejected the request |
 | `JOPLIN_BASE_URL` | `http://localhost:41184` | Where Joplin's Web Clipper service listens. Change it only if you changed the port in Joplin |
+| `SBJ_JOPLIN_TIMEOUT` | `10` | Seconds Joplin has to answer a request. Raise it if a large search on a slow machine runs out of time |
+| `SBJ_JOPLIN_CONNECT_TIMEOUT` | `3` | Seconds to open the connection to Joplin. It is on the same machine, so this takes milliseconds when Joplin is there |
 
-The server gives Joplin ten seconds to answer each request. Joplin's API takes
-the token in the address of each request, which is why Joplin should only ever
+Both timeouts take a number of seconds above 0 (`2.5` works). Empty is the
+default; anything else (`0`, `-1`, `ten`) stops `serve`, `reindex` and
+`notebooks` from starting, with a message naming the variable.
+
+When a request runs out of time, the server asks Joplin's `/ping` (allowing it
+two seconds). If that gets no answer either, or the request was the second in a
+row to time out, Joplin is taken to be hung: for the next 30 seconds every tool
+call is refused at once with the same "didn't answer" message, without asking
+Joplin. When the 30 seconds are up, the next call pings first and goes ahead if
+Joplin answers. One slow answer on a Joplin that answers its ping holds nothing.
+See [Joplin didn't answer](troubleshooting.md#joplin-didnt-answer).
+
+Joplin's API takes the token in the address of each request, which is why Joplin should only ever
 be reached on the same machine, and why HTTP mode keeps that address out of its
 logs.
 

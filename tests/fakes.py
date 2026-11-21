@@ -139,7 +139,12 @@ class FakeJoplin:
         self.folders: dict[str, dict[str, Any]] = {}
         self.notes: dict[str, dict[str, Any]] = {}
         self.requests: list[str] = []  # the path of every request, in order
+        self.pings = 0  # requests to /ping, kept apart from `requests`
         self.down = False
+        # Accept connections and answer nothing: every request times out.
+        self.hung = False
+        # /ping alone gets no answer (whatever the other routes do).
+        self.ping_silent = False
         # Called with a note's id just before that note is served on its own, so
         # a test can change the vault between a listing and the read that follows.
         self.before_note: Callable[[str], None] | None = None
@@ -203,11 +208,22 @@ class FakeJoplin:
         respx.get(f"{self.base_url}/search").mock(side_effect=self._search)
         respx.post(f"{self.base_url}/notes").mock(side_effect=self._create)
         respx.get(url__regex=rf"{base}/notes/[^/?]+").mock(side_effect=self._note)
+        respx.get(f"{self.base_url}/ping").mock(side_effect=self._ping)
+
+    def _ping(self, _request: httpx.Request) -> httpx.Response:
+        self.pings += 1
+        if self.down:
+            raise httpx.ConnectError("Joplin is down")
+        if self.hung or self.ping_silent:
+            raise httpx.ReadTimeout("no answer")
+        return httpx.Response(200, text="JoplinClipperServer")
 
     def _page(self, request: httpx.Request, rows: list[dict[str, Any]]) -> httpx.Response:
         self.requests.append(request.url.path)
         if self.down:
             raise httpx.ConnectError("Joplin is down")
+        if self.hung:
+            raise httpx.ReadTimeout("no answer")
         fields = request.url.params.get("fields", "id,parent_id,title").split(",")
         page = int(request.url.params.get("page", "1"))
         start = (page - 1) * self.page_size
@@ -243,6 +259,8 @@ class FakeJoplin:
         self.requests.append(request.url.path)
         if self.down:
             raise httpx.ConnectError("Joplin is down")
+        if self.hung:
+            raise httpx.ReadTimeout("no answer")
         note_id = request.url.path.rsplit("/", 1)[-1]
         if self.note_status is not None:
             return httpx.Response(self.note_status)
@@ -257,6 +275,8 @@ class FakeJoplin:
         self.requests.append(f"POST {request.url.path}")
         if self.down or self.post_refused:
             raise httpx.ConnectError("connection refused")
+        if self.hung:
+            raise httpx.ReadTimeout("no answer")
         payload = json.loads(request.content)
         self.posts.append(payload)
         if self.post_status is not None:

@@ -7,6 +7,9 @@ from pydantic import BaseModel, field_validator
 
 DEFAULT_BASE_URL = "http://localhost:41184"
 DEFAULT_TIMEOUT = 10.0
+DEFAULT_CONNECT_TIMEOUT = 3.0
+TIMEOUT_VAR = "SBJ_JOPLIN_TIMEOUT"
+CONNECT_TIMEOUT_VAR = "SBJ_JOPLIN_CONNECT_TIMEOUT"
 
 DEFAULT_EMBEDDING_BACKEND = "fastembed"
 DEFAULT_VECTOR_STORE = "sqlite-vec"
@@ -56,6 +59,26 @@ def _env_list(name: str) -> tuple[str, ...]:
     return tuple(entry.strip() for entry in os.environ.get(name, "").split(",") if entry.strip())
 
 
+def _env_seconds(name: str, default: float) -> float | None:
+    """A number of seconds from the environment: the default when unset or empty.
+
+    None when the value is not a positive number. The caller then uses the
+    default and records the name, and the commands refuse to start (cli.py).
+    Raising here instead would break ``/healthz``, which reads the settings on
+    every request.
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    if not value > 0 or value == float("inf"):  # also catches nan
+        return None
+    return value
+
+
 def _set_but_blank(*names: str) -> tuple[str, ...]:
     """Those of ``names`` that are in the environment and list nothing."""
     return tuple(name for name in names if name in os.environ and not _env_list(name))
@@ -72,7 +95,10 @@ class Settings(BaseModel):
 
     joplin_base_url: str = DEFAULT_BASE_URL
     joplin_api_token: str = ""
+    # How long a request to Joplin may wait for its answer (SBJ_JOPLIN_TIMEOUT),
+    # and for its connection (SBJ_JOPLIN_CONNECT_TIMEOUT), in seconds.
     request_timeout: float = DEFAULT_TIMEOUT
+    connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
 
     # The notebook filter (scope.py): ids or titles, each covering the notebook and
     # everything under it. Both empty means every notebook is visible.
@@ -90,6 +116,9 @@ class Settings(BaseModel):
     # Switches set to something that is neither a yes nor a no. They stay on, and
     # `serve` refuses to start until the value is fixed.
     unreadable_switches: tuple[str, ...] = ()
+    # Settings of seconds that aren't a positive number. Their default is used, and
+    # the commands refuse to start until the value is fixed.
+    unreadable_numbers: tuple[str, ...] = ()
 
     embedding_backend: str = DEFAULT_EMBEDDING_BACKEND
     embedding_model: str = ""
@@ -120,9 +149,18 @@ class Settings(BaseModel):
     def from_env(cls) -> "Settings":
         """Build settings from ``JOPLIN_*`` / ``SBJ_*`` environment variables."""
         ask_every_time = _env_switch(ASK_EVERY_TIME_VAR)
+        timeout = _env_seconds(TIMEOUT_VAR, DEFAULT_TIMEOUT)
+        connect_timeout = _env_seconds(CONNECT_TIMEOUT_VAR, DEFAULT_CONNECT_TIMEOUT)
         return cls(
             joplin_base_url=os.environ.get("JOPLIN_BASE_URL", DEFAULT_BASE_URL),
             joplin_api_token=os.environ.get("JOPLIN_API_TOKEN", ""),
+            request_timeout=DEFAULT_TIMEOUT if timeout is None else timeout,
+            connect_timeout=DEFAULT_CONNECT_TIMEOUT if connect_timeout is None else connect_timeout,
+            unreadable_numbers=tuple(
+                name
+                for name, value in ((TIMEOUT_VAR, timeout), (CONNECT_TIMEOUT_VAR, connect_timeout))
+                if value is None
+            ),
             notebooks=_env_list("SBJ_NOTEBOOKS"),
             exclude_notebooks=_env_list("SBJ_EXCLUDE_NOTEBOOKS"),
             blank_filter_vars=_set_but_blank("SBJ_NOTEBOOKS", "SBJ_EXCLUDE_NOTEBOOKS"),

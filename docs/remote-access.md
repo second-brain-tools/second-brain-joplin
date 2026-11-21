@@ -374,7 +374,9 @@ catch that, which is the reason to use a client that asks, and to leave
   the call is refused with "Rate limit exceeded".
 - **Semantic search** runs at most two queries at a time, so a burst can't tie
   up the embedding model.
-- **Logs** go to stderr, one line per tool call:
+- **Logs** go to stderr, one line per tool call. A failed call names what
+  failed by its class name, such as `outcome=error:JoplinNotFoundError` or
+  `outcome=error:JoplinUnavailableError` (Joplin not answering):
 
   ```
   2026-11-11 16:40:02,113 INFO second_brain_joplin.audit: tool=joplin_search caller=65598 outcome=ok ms=41

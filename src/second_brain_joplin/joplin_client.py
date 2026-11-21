@@ -6,9 +6,20 @@ filtering, who may write where) is the tool layer's job.
 
 Requires Joplin Desktop running with the Web Clipper service enabled. The token
 is available at Tools → Options → Web Clipper.
+
+**When Joplin hangs.** A Joplin that was quit refuses the connection at once. One
+that hangs accepts it and never answers, so each request would wait out the whole
+timeout. After a request times out, the client asks Joplin's ``/ping`` (a two-
+second wait): no answer, or a second timeout in a row with no answer between,
+means Joplin isn't answering, and for the next ``HOLD_SECONDS`` every request is
+refused at once with the same message, without being sent. When the hold ends,
+the next request pings first: an answer lets it through, silence starts a new
+hold. A slow answer to one large request on a healthy Joplin holds nothing.
 """
 
+import time
 from collections.abc import Callable
+from enum import Enum
 from typing import Any
 
 import httpx
@@ -18,7 +29,9 @@ from .errors import (
     JoplinAPIError,
     JoplinAuthError,
     JoplinConnectionError,
+    JoplinError,
     JoplinNotFoundError,
+    JoplinUnavailableError,
 )
 
 JsonDict = dict[str, Any]
@@ -32,6 +45,17 @@ _NEVER_SENT = (
     httpx.PoolTimeout,
     httpx.UnsupportedProtocol,
 )
+
+# How long requests are refused at once after Joplin stopped answering.
+HOLD_SECONDS = 30.0
+# How long the check that Joplin answers at all may wait.
+PING_SECONDS = 2.0
+
+
+class _Ping(Enum):
+    ANSWERED = "answered"
+    SILENT = "silent"  # connected, or tried to, and no answer in time
+    REFUSED = "refused"  # nothing listening: Joplin quit, which fails fast anyway
 
 
 class JoplinClient:
@@ -48,9 +72,15 @@ class JoplinClient:
         self._client = httpx.AsyncClient(
             base_url=settings.joplin_base_url,
             params={"token": settings.joplin_api_token},
-            timeout=settings.request_timeout,
+            timeout=httpx.Timeout(settings.request_timeout, connect=settings.connect_timeout),
             trust_env=False,
         )
+        # The hold (see the module's docstring). One client serves every tool call
+        # and the background sync, so what one call learns, the next one knows.
+        self.clock: Callable[[], float] = time.monotonic
+        self._held_until: float | None = None
+        self._checking = False  # a ping at the end of a hold is under way
+        self._timed_out_last = False  # the last request timed out, no answer since
 
     @property
     def base_url(self) -> str:
@@ -60,12 +90,70 @@ class JoplinClient:
         await self._client.aclose()
 
     async def ping(self) -> bool:
-        """Return True if the Joplin API is reachable and responding."""
+        """Return True if the Joplin API is reachable and responding.
+
+        Inside a hold it answers False at once, without asking.
+        """
         try:
-            response = await self._client.get("/ping")
-        except httpx.TransportError:  # refused, timed out, or the connection dropped
+            response = await self._request("GET", "/ping")
+        except JoplinError:
             return False
         return response.text.strip() == "JoplinClipperServer"
+
+    # -- the hold --------------------------------------------------------------
+
+    def _not_answering(self, *, maybe_sent: bool) -> JoplinUnavailableError:
+        return JoplinUnavailableError(
+            f"Joplin didn't answer at {self.base_url} within "
+            f"{self._settings.request_timeout:g} seconds — is Joplin Desktop running "
+            "and responsive?",
+            maybe_sent=maybe_sent,
+        )
+
+    def _answered(self) -> None:
+        """Joplin answered a request: whatever was held is over."""
+        self._held_until = None
+        self._timed_out_last = False
+
+    def _hold(self) -> None:
+        self._held_until = self.clock() + HOLD_SECONDS
+
+    async def _ping_once(self) -> _Ping:
+        """Ask ``/ping`` with a short timeout, outside the hold. Changes no state."""
+        try:
+            await self._client.get("/ping", timeout=PING_SECONDS)
+        except httpx.TimeoutException:
+            return _Ping.SILENT
+        except httpx.TransportError:
+            return _Ping.REFUSED
+        return _Ping.ANSWERED  # any answer at all, an error page included
+
+    async def _gate(self) -> None:
+        """Refuse at once inside a hold; at its end, let a request through only if Joplin pings."""
+        if self._held_until is None:
+            return
+        if self._checking or self.clock() < self._held_until:
+            raise self._not_answering(maybe_sent=False)
+        self._checking = True
+        try:
+            ping = await self._ping_once()
+        finally:  # a cancelled call must not leave the gate shut for good
+            self._checking = False
+        if ping is _Ping.SILENT:
+            self._hold()
+            raise self._not_answering(maybe_sent=False)
+        # Joplin answers pings again (or quit, which the request will report
+        # itself). `_timed_out_last` stays: one more timeout holds at once.
+        self._held_until = None
+
+    async def _after_timeout(self) -> None:
+        """A request timed out: hold if Joplin isn't answering at all."""
+        if self._timed_out_last:  # a second timeout in a row, no answer between
+            self._hold()
+            return
+        self._timed_out_last = True
+        if await self._ping_once() is _Ping.SILENT:
+            self._hold()
 
     # -- low-level helpers ---------------------------------------------------
 
@@ -90,21 +178,21 @@ class JoplinClient:
         params: JsonDict | None = None,
         json: JsonDict | None = None,
     ) -> httpx.Response:
+        await self._gate()
         try:
             response = await self._client.request(method, path, params=params, json=json)
         except httpx.TimeoutException as exc:
-            raise JoplinConnectionError(
-                f"Joplin didn't answer at {self.base_url} within "
-                f"{self._settings.request_timeout:g} seconds — is Joplin Desktop running "
-                "and responsive?",
-                maybe_sent=not isinstance(exc, _NEVER_SENT),
-            ) from exc
+            await self._after_timeout()
+            raise self._not_answering(maybe_sent=not isinstance(exc, _NEVER_SENT)) from exc
         except httpx.TransportError as exc:  # refused, reset, DNS, protocol errors
+            # Not a hang: whatever was held is over, and this fails fast by itself.
+            self._answered()
             raise JoplinConnectionError(
                 f"Joplin is unreachable at {self.base_url} — is Joplin Desktop running "
                 "with the Web Clipper service enabled?",
                 maybe_sent=not isinstance(exc, _NEVER_SENT),
             ) from exc
+        self._answered()
         self._raise_for_status(response)
         return response
 

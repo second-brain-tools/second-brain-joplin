@@ -132,8 +132,16 @@ async def test_connect_error_raises(client: JoplinClient) -> None:
         await client.get_note("x")
 
 
+def _ping_answers() -> respx.Route:
+    """Joplin answers ``/ping``: a timeout elsewhere is a slow request, not a hang."""
+    return respx.get(f"{BASE_URL}/ping").mock(
+        return_value=httpx.Response(200, text="JoplinClipperServer")
+    )
+
+
 @respx.mock
 async def test_timeout_raises_connection_error_naming_the_wait(client: JoplinClient) -> None:
+    _ping_answers()
     respx.get(f"{BASE_URL}/notes/x").mock(side_effect=httpx.ReadTimeout("slow"))
     with pytest.raises(JoplinConnectionError, match="didn't answer .* within 10 seconds"):
         await client.get_note("x")
@@ -248,6 +256,7 @@ async def test_create_note_maps_errors_like_any_other_request(client: JoplinClie
     respx.post(f"{BASE_URL}/notes").mock(return_value=httpx.Response(403))
     with pytest.raises(JoplinAuthError):
         await client.create_note("a" * 32, "T", "B", "b" * 32)
+    _ping_answers()
     respx.post(f"{BASE_URL}/notes").mock(side_effect=httpx.ReadTimeout("slow"))
     with pytest.raises(JoplinConnectionError, match="didn't answer"):
         await client.create_note("a" * 32, "T", "B", "b" * 32)
@@ -295,6 +304,7 @@ async def test_create_note_treats_any_2xx_answer_as_created(
 async def test_a_connection_error_says_whether_the_request_may_have_been_sent(
     client: JoplinClient, error: Exception, maybe_sent: bool
 ) -> None:
+    _ping_answers()
     respx.post(f"{BASE_URL}/notes").mock(side_effect=error)
     with pytest.raises(JoplinConnectionError) as raised:
         await client.create_note("a" * 32, "T", "B", "b" * 32)

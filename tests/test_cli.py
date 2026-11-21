@@ -40,6 +40,8 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "SBJ_EXCLUDE_NOTEBOOKS",
         "SBJ_WRITE_NOTEBOOKS",
         "SBJ_ASK_EVERY_TIME",
+        "SBJ_JOPLIN_TIMEOUT",
+        "SBJ_JOPLIN_CONNECT_TIMEOUT",
     ):
         monkeypatch.setenv(name, "")
         monkeypatch.delenv(name)
@@ -735,3 +737,43 @@ def test_ask_every_time_follows_the_usual_order_of_environment_then_env_file(
     monkeypatch.setenv("SBJ_ASK_EVERY_TIME", exported)
     cli.load_env_file(env_file)
     assert Settings.from_env().ask_every_time is asks
+
+
+# -- SBJ_JOPLIN_TIMEOUT and SBJ_JOPLIN_CONNECT_TIMEOUT (#86) -------------------------
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["serve"], ["serve", "--transport", "http", "--no-auth"], ["reindex"], ["notebooks"]],
+    ids=["stdio", "http", "reindex", "notebooks"],
+)
+def test_every_command_refuses_an_unreadable_timeout_before_asking_joplin(
+    argv: list[str],
+    joplin: FakeJoplin,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    http_calls: list[HttpOptions],
+) -> None:
+    monkeypatch.setattr(FastMCP, "run", lambda *a, **k: pytest.fail("the server must not start"))
+    monkeypatch.setenv("SBJ_JOPLIN_TIMEOUT", "ten")
+    monkeypatch.setenv("SBJ_JOPLIN_CONNECT_TIMEOUT", "0")
+    with pytest.raises(SystemExit) as exc:
+        cli.main(argv)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "SBJ_JOPLIN_TIMEOUT must be a number of seconds above 0, got 'ten'" in err
+    assert "SBJ_JOPLIN_CONNECT_TIMEOUT must be a number of seconds above 0, got '0'" in err
+    assert http_calls == []
+    assert joplin.requests == []
+
+
+def test_an_unreadable_switch_and_timeout_are_reported_together(
+    joplin: FakeJoplin, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("SBJ_ASK_EVERY_TIME", "flase")
+    monkeypatch.setenv("SBJ_JOPLIN_TIMEOUT", "-1")
+    with pytest.raises(SystemExit):
+        cli.main(["notebooks"])
+    err = capsys.readouterr().err
+    assert "SBJ_ASK_EVERY_TIME must be true or false" in err
+    assert "SBJ_JOPLIN_TIMEOUT must be a number of seconds above 0" in err
