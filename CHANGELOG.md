@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`joplin_replace_note` rewrites the whole text of a note** (#80), for a
+  short note rebuilt each time, which until now became a new note every time
+  while the old copy waited to be deleted. It needs `SBJ_REPLACE` on as well as
+  `SBJ_EDIT_NOTEBOOKS`, runs under the same safety net, keeps the title,
+  notebook and tags, refuses an empty text and one that drops an attachment
+  reference, and answers `already_replaced` without writing when the note
+  already holds the text. This replaces the tag-based design #80 was first
+  filed with.
 - **`joplin_edit_note` changes part of a note, or adds to it** (#83, which
   covers #70). `edits` replace exact text from the note, each found once, in
   order; `append` adds text at the end of a section (by heading or path) or of

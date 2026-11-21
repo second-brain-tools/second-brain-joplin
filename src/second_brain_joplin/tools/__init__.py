@@ -9,16 +9,23 @@ the server is read-only and a client can't even see a write tool.
 
 from fastmcp import FastMCP
 
-from . import changes, edit, read, semantic, write
+from . import changes, edit, read, replace, semantic, write
 
 
 def register_tools(
-    mcp: FastMCP, *, writes: bool = False, edits: bool = False, ask_every_time: bool = True
+    mcp: FastMCP,
+    *,
+    writes: bool = False,
+    edits: bool = False,
+    replace_whole: bool = False,
+    ask_every_time: bool = True,
 ) -> None:
     """Register the MCP tools on the given FastMCP server; the write tools on request.
 
     ``writes`` adds note creation (``SBJ_WRITE_NOTEBOOKS``); ``edits`` the tools that
-    change notes and ``joplin_changes`` (``SBJ_EDIT_NOTEBOOKS``). ``ask_every_time``
+    change notes and ``joplin_changes`` (``SBJ_EDIT_NOTEBOOKS``), and with
+    ``replace_whole`` (``SBJ_REPLACE``) also the one that rewrites a whole note.
+    ``ask_every_time``
     marks every write tool: see :func:`write.register`.
     """
     read.register(mcp)
@@ -28,3 +35,5 @@ def register_tools(
     if edits:
         changes.register(mcp)
         edit.register(mcp, ask_every_time=ask_every_time)
+        if replace_whole:
+            replace.register(mcp, ask_every_time=ask_every_time)

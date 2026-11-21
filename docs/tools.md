@@ -494,6 +494,27 @@ Returns:
 To check a change without reading the note again, compare `new_sha256` with the
 text you meant to leave.
 
+## `joplin_replace_note`
+
+Replaces the whole text of a note: for a short note rebuilt each time, such as
+a brief or a page that says where things stand. For a long note, or a change to
+part of one, [`joplin_edit_note`](#joplin_edit_note) is the better tool. It
+exists only when `SBJ_REPLACE` is on as well as `SBJ_EDIT_NOTEBOOKS`, and runs
+under the same rules ([what protects a change](remote-access.md#changing-notes)).
+
+| Argument | Type | Default | Allowed |
+|---|---|---|---|
+| `note_id` | string | required | The note's id, or a link to it |
+| `title` | string | required | The note's current title, exactly as `joplin_read` gave it |
+| `body` | string | required | The whole new text, 1 to 100,000 characters, not only spaces |
+| `expected_sha256` | string | required | `body_sha256` from the `joplin_read` the new text is based on |
+
+Only the text changes: the title, notebook, tags and creation date stay. The new
+text must keep every reference to the note's attachments (`:/<id>`). Returns
+what [`joplin_edit_note`](#joplin_edit_note) returns, with `already_replaced`
+in place of `edits_applied`: `true` when the note already holds exactly this
+text, in which case nothing is written, whatever `expected_sha256` says.
+
 ## `joplin_changes`
 
 Lists the changes the server made to notes, newest first. It exists when
@@ -566,6 +587,7 @@ assistant can pass on. These are the ones the server writes itself;
 | `This note is in Joplin's trash …`, `… is a conflict copy …`, `… hasn't been decrypted …`, `… isn't Markdown …` | Notes no tool changes |
 | `The change would remove N reference(s) to the note's attachments …` | Keep every `:/<id>` of an attachment |
 | `The change would leave the note as it is, so nothing was written.` | The edit's `old` and `new` are the same |
+| `A note's text can't be replaced with nothing.` | `joplin_replace_note` with an empty text |
 | `The server's limit of N changes a day is reached …` | `SBJ_CHANGES_PER_DAY`; it says when it resets |
 | `The server couldn't keep a copy of the note before changing it, so nothing was changed. …` | The journal folder can't be written; the server's log says why |
 | `… The change may or may not have been made: read the note to see …` | Joplin took the request and didn't answer; a repeat won't change it twice |

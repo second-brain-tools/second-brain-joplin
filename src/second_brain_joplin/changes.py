@@ -75,6 +75,9 @@ class ChangeRequest:
     # the repeat memory.
     request_parts: tuple[str, ...]
     allow_empty: bool = True
+    # For a tool that sends the whole new text: when the note already holds it,
+    # the call is a repeat however long ago it was made, and nothing is written.
+    target_body: str | None = None
 
 
 def _not_editable(targets: WriteTargets) -> ToolError:
@@ -137,6 +140,18 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
         earlier = app.recent_changes.get(key)
         if earlier is not None and earlier.new_sha256 == current:
             return earlier.model_copy(update={"already_applied": True})
+        if request.target_body is not None and body == request.target_body:
+            return ChangedNote(
+                id=note_id,
+                title=str(note.get("title", "")),
+                notebook_id=notebook_id,
+                notebook=notebook_title,
+                old_chars=len(body),
+                new_chars=len(body),
+                old_sha256=current,
+                new_sha256=current,
+                already_applied=True,
+            )
 
         if str(note.get("title", "")) != request.title:
             raise ToolError(

@@ -26,6 +26,12 @@ CHANGES_NOTE = ToolAnnotations(
     read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False
 )
 
+# Rewrites a note's whole text. Destructive; sending the same text again changes
+# nothing, so idempotent.
+REPLACES_NOTE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=False
+)
+
 # Tool metadata Claude Code honours: prompt the user on every call of this tool,
 # with no "don't ask again", whatever allow rules are in force and in every
 # permission mode that can prompt (Claude Code docs, "Require approval for a

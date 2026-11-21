@@ -82,6 +82,7 @@ connectors (claude.ai, the Claude apps, Cowork) can reach it through a tunnel. S
 | `joplin_reindex` | Build/refresh the semantic index | The local index only, never Joplin |
 | `joplin_create_note` | Add a new markdown note to a notebook you allow (`title`, `body`, `notebook` by title or id) | A new note, nothing else. Off by default |
 | `joplin_edit_note` | Change part of a note (exact text replaced), or add to a section, its start or its end | Changes a note, after keeping a copy of it. Off by default (`SBJ_EDIT_NOTEBOOKS`) |
+| `joplin_replace_note` | Replace the whole text of a short note that is rebuilt each time | Rewrites a note, after keeping a copy of it. Off by default (`SBJ_EDIT_NOTEBOOKS` and `SBJ_REPLACE`) |
 
 [docs/tools.md](docs/tools.md) describes each tool's arguments, results and
 errors. Every tool carries MCP annotations (read-only; for `joplin_reindex`

@@ -288,8 +288,8 @@ carries the whole note in readable form: the notebook by name, the title, the
 text. What you approve is what gets written.
 
 Whether a client asks is up to the client. The server does what it can to make
-Claude's clients ask: it marks every write tool (`joplin_create_note` and
-`joplin_edit_note`) with
+Claude's clients ask: it marks every write tool (`joplin_create_note`,
+`joplin_edit_note` and `joplin_replace_note`) with
 `"anthropic/requiresUserInteraction": true`, which Claude Code documents as the
 way for a tool to require approval on every call. The table shows what each
 client did when tested in November 2026, with that mark and with the mark left

@@ -81,8 +81,9 @@ public issue. We aim to acknowledge reports within a few days.
   be created (`SBJ_WRITE_NOTEBOOKS`) or changed (`SBJ_EDIT_NOTEBOOKS`); without
   them no write tool is registered and a client can't see one. With the first,
   `joplin_create_note` adds a new note to those notebooks and does nothing
-  else. With the second, `joplin_edit_note` changes notes in those notebooks,
-  and never in one the filter hides. A change always carries the checksum of
+  else. With the second, `joplin_edit_note` changes notes in those notebooks
+  (and with `SBJ_REPLACE`, `joplin_replace_note` rewrites a whole one), never
+  in a notebook the filter hides. A change always carries the checksum of
   the text it was made on, so a note changed since is never overwritten; before
   each change the server keeps a copy of the note on its own disk (no copy, no
   change), and `second-brain-joplin restore` puts it back; no more than
