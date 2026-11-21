@@ -9,12 +9,12 @@ is available at Tools → Options → Web Clipper.
 
 **When Joplin hangs.** A Joplin that was quit refuses the connection at once. One
 that hangs accepts it and never answers, so each request would wait out the whole
-timeout. After a request times out, the client asks Joplin's ``/ping`` (a two-
-second wait): no answer, or a second timeout in a row with no answer between,
-means Joplin isn't answering, and for the next ``HOLD_SECONDS`` every request is
-refused at once with the same message, without being sent. When the hold ends,
-the next request pings first: an answer lets it through, silence starts a new
-hold. A slow answer to one large request on a healthy Joplin holds nothing.
+timeout. After a request times out, the client asks Joplin's ``/ping``, with the
+same timeouts as any request. No answer means Joplin isn't answering: for the
+next ``HOLD_SECONDS`` every request is refused at once with the same message,
+without being sent. When the hold ends, the next request pings first (the others
+are still refused meanwhile): an answer lets it through, silence starts a new
+hold. A Joplin that answers its ping is never held, however slow a request was.
 """
 
 import time
@@ -48,8 +48,6 @@ _NEVER_SENT = (
 
 # How long requests are refused at once after Joplin stopped answering.
 HOLD_SECONDS = 30.0
-# How long the check that Joplin answers at all may wait.
-PING_SECONDS = 2.0
 
 
 class _Ping(Enum):
@@ -80,7 +78,6 @@ class JoplinClient:
         self.clock: Callable[[], float] = time.monotonic
         self._held_until: float | None = None
         self._checking = False  # a ping at the end of a hold is under way
-        self._timed_out_last = False  # the last request timed out, no answer since
 
     @property
     def base_url(self) -> str:
@@ -113,15 +110,18 @@ class JoplinClient:
     def _answered(self) -> None:
         """Joplin answered a request: whatever was held is over."""
         self._held_until = None
-        self._timed_out_last = False
 
     def _hold(self) -> None:
         self._held_until = self.clock() + HOLD_SECONDS
 
     async def _ping_once(self) -> _Ping:
-        """Ask ``/ping`` with a short timeout, outside the hold. Changes no state."""
+        """Ask ``/ping``, outside the hold, with the usual timeouts. Changes no state.
+
+        A short timeout here would take a slow but healthy Joplin for a hung one,
+        and hold it again at the end of every hold.
+        """
         try:
-            await self._client.get("/ping", timeout=PING_SECONDS)
+            await self._client.get("/ping")
         except httpx.TimeoutException:
             return _Ping.SILENT
         except httpx.TransportError:
@@ -142,16 +142,11 @@ class JoplinClient:
         if ping is _Ping.SILENT:
             self._hold()
             raise self._not_answering(maybe_sent=False)
-        # Joplin answers pings again (or quit, which the request will report
-        # itself). `_timed_out_last` stays: one more timeout holds at once.
+        # Joplin answers pings again (or quit, which the request will report itself).
         self._held_until = None
 
     async def _after_timeout(self) -> None:
-        """A request timed out: hold if Joplin isn't answering at all."""
-        if self._timed_out_last:  # a second timeout in a row, no answer between
-            self._hold()
-            return
-        self._timed_out_last = True
+        """A request timed out: hold if Joplin doesn't answer its ping either."""
         if await self._ping_once() is _Ping.SILENT:
             self._hold()
 
@@ -254,7 +249,7 @@ class JoplinClient:
 
     async def get_note(self, note_id: str) -> JsonDict:
         """Return a single note including its full markdown body."""
-        params = {"fields": "id,title,body,parent_id,created_time,updated_time"}
+        params = {"fields": "id,title,body,parent_id,created_time,updated_time,encryption_applied"}
         data: JsonDict = (await self._get(f"/notes/{note_id}", params)).json()
         return data
 

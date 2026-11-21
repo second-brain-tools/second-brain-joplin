@@ -86,19 +86,6 @@ async def test_one_slow_request_on_a_joplin_that_pings_holds_nothing(
     assert route.call_count == 1
 
 
-async def test_a_second_timeout_in_a_row_holds_even_when_joplin_pings(
-    joplin: FakeJoplin, client: JoplinClient
-) -> None:
-    respx.get(f"{joplin.base_url}/search").mock(side_effect=httpx.ReadTimeout("slow"))
-    for _ in range(2):
-        with pytest.raises(JoplinUnavailableError):
-            await client.search("apple", limit=5)
-    assert joplin.pings == 1  # the second timeout holds without asking again
-
-    await _fails_with_the_message(client)
-    assert joplin.count("/folders") == 0
-
-
 async def test_an_answer_between_two_timeouts_resets_the_count(
     joplin: FakeJoplin, client: JoplinClient
 ) -> None:
@@ -138,22 +125,6 @@ async def test_after_the_hold_a_silent_ping_holds_again_without_sending_the_call
     clock.now += HOLD_SECONDS
     await _fails_with_the_message(client)  # pinged, no answer: held again
     assert (joplin.count("/folders"), joplin.pings) == (1, 2)
-    await _fails_with_the_message(client)
-    assert joplin.pings == 2
-
-
-async def test_a_joplin_that_pings_but_still_hangs_is_held_after_one_more_timeout(
-    joplin: FakeJoplin, client: JoplinClient, clock: Clock
-) -> None:
-    joplin.hung = True
-    await _fails_with_the_message(client)
-    # /ping answers again, every other route still hangs.
-    joplin.hung = False
-    respx.get(f"{joplin.base_url}/folders").mock(side_effect=httpx.ReadTimeout("slow"))
-
-    clock.now += HOLD_SECONDS
-    await _fails_with_the_message(client)  # let through by the ping, timed out
-    assert joplin.pings == 2  # held again at once: no third ping
     await _fails_with_the_message(client)
     assert joplin.pings == 2
 
@@ -291,3 +262,44 @@ async def test_the_message_quotes_the_read_timeout(joplin: FakeJoplin) -> None:
         await client.get_folders()
     with pytest.raises(JoplinUnavailableError, match="within 4 seconds"):
         await client.get_folders()
+
+
+async def test_timeouts_on_a_joplin_that_answers_its_ping_never_hold(
+    joplin: FakeJoplin, client: JoplinClient
+) -> None:
+    """Two slow requests at once (a large search and the background sync, say)."""
+    respx.get(f"{joplin.base_url}/search").mock(side_effect=httpx.ReadTimeout("slow"))
+    calls = [client.search("apple", limit=5) for _ in range(2)]
+    results = await asyncio.gather(*calls, return_exceptions=True)
+    assert all(isinstance(r, JoplinUnavailableError) for r in results)
+    assert joplin.pings == 2  # each timeout pinged, and Joplin answered
+
+    assert await client.get_folders()  # not held
+    assert joplin.count("/folders") == 1
+
+
+async def test_a_joplin_that_pings_but_hangs_on_requests_is_asked_each_time(
+    joplin: FakeJoplin, client: JoplinClient
+) -> None:
+    """Never held while it answers its ping: each request is sent and times out."""
+    respx.get(f"{joplin.base_url}/folders").mock(side_effect=httpx.ReadTimeout("slow"))
+    for _ in range(3):
+        await _fails_with_the_message(client)
+    assert joplin.pings == 3
+
+
+async def test_the_ping_waits_as_long_as_a_request_may(joplin: FakeJoplin, clock: Clock) -> None:
+    """A short ping would take a slow but healthy Joplin for a hung one, again and again."""
+    client = JoplinClient(Settings(joplin_api_token="tok", request_timeout=7, connect_timeout=2))
+    client.clock = clock
+    seen: list[dict[str, float]] = []
+
+    def ping(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"])
+        return httpx.Response(200, text="JoplinClipperServer")
+
+    respx.get(f"{joplin.base_url}/ping").mock(side_effect=ping)
+    respx.get(f"{joplin.base_url}/search").mock(side_effect=httpx.ReadTimeout("slow"))
+    with pytest.raises(JoplinUnavailableError):
+        await client.search("apple", limit=5)
+    assert seen == [{"connect": 2, "read": 7, "write": 7, "pool": 7}]

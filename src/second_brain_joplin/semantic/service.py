@@ -44,6 +44,9 @@ class _Embedded(Enum):
     TEXT = "text"  # its chunks are in the index
     EMPTY = "empty"  # it has no text: marked, so the next sync leaves it alone
     HIDDEN = "hidden"  # the filter hides it now: nothing kept
+    # Synced in encrypted, and not decrypted yet: its title and text read as empty.
+    # Not marked, since decrypting keeps its version: the next sync looks again.
+    ENCRYPTED = "encrypted"
 
 
 class SemanticSearchService:
@@ -134,7 +137,7 @@ class SemanticSearchService:
             outcome = await self._embed_note(note_id, current[note_id], scope)
             if note_id in indexed:
                 # Its text changed, or it was emptied: either way its entry did.
-                if outcome is not _Embedded.HIDDEN:
+                if outcome in (_Embedded.TEXT, _Embedded.EMPTY):
                     updated += 1
             elif outcome is _Embedded.TEXT:  # new, or a note with no text gained some
                 added += 1
@@ -159,6 +162,8 @@ class SemanticSearchService:
         # embedded is decided by the notebook the text was actually read from.
         if not scope.allows_note(note):
             return _Embedded.HIDDEN
+        if note.get("encryption_applied"):
+            return _Embedded.ENCRYPTED
 
         title = note.get("title", "")
         chunks = chunk_note(title, note.get("body", ""))

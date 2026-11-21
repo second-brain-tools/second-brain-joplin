@@ -64,7 +64,8 @@ is starting or busy with a large sync, this can last a minute. Try again.
 - If Joplin doesn't answer its `/ping` either, the server stops asking it for
   30 seconds: calls in that time get this message at once, instead of each
   waiting out the timeout. The first call after that pings Joplin and goes ahead
-  if it answers. Nothing needs restarting.
+  if it answers. Nothing needs restarting. A Joplin that answers its ping is
+  never held: each slow request just waits out its own timeout.
 - If this keeps happening, Joplin is hung: quit it and open it again. A Joplin
   that was quit gives "Joplin is unreachable" at once.
 - If only large searches run out of time, raise `SBJ_JOPLIN_TIMEOUT`

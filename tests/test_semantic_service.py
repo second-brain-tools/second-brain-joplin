@@ -655,3 +655,43 @@ async def test_a_sync_inside_a_hold_fails_at_once_and_leaves_the_index_alone() -
 
     assert len(joplin.requests) == asked
     assert index.note_versions() == {note: "100"}
+
+
+@respx.mock
+async def test_a_note_not_yet_decrypted_is_neither_marked_nor_counted_and_is_read_again() -> None:
+    """Synced in encrypted, it reads as empty; decrypting keeps its version."""
+    joplin = FakeJoplin()
+    note = joplin.note("", "", joplin.notebook("Work"))
+    joplin.notes[note]["encryption_applied"] = 1
+    joplin.install()
+    index = FakeVectorIndex()
+    service = _service(index=index)
+
+    stats = await service.sync()
+    assert (stats.added, stats.updated, stats.total) == (0, 0, 1)
+    assert index.empty_versions() == {}
+    assert index.note_versions() == {}
+
+    joplin.notes[note].update(title="Plan", body="apple plan", encryption_applied=0)
+    stats = await service.sync()  # same updated_time: only no mark makes it look again
+
+    assert stats.added == 1
+    assert index.note_versions() == {note: "100"}
+    assert joplin.count(f"/notes/{note}") == 2
+
+
+@respx.mock
+async def test_an_indexed_note_that_comes_back_encrypted_drops_its_chunks_uncounted() -> None:
+    joplin = FakeJoplin()
+    note = joplin.note("Plan", "apple plan", joplin.notebook("Work"))
+    joplin.install()
+    index = FakeVectorIndex()
+    service = _service(index=index)
+    await service.sync()
+
+    joplin.notes[note].update(title="", body="", encryption_applied=1, updated_time=200)
+    stats = await service.sync()
+
+    assert (stats.added, stats.updated, stats.deleted) == (0, 0, 0)
+    assert index.note_versions() == {} and index.empty_versions() == {}
+    assert "apple" not in index.stored_text()

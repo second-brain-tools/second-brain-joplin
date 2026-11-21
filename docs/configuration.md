@@ -80,12 +80,14 @@ Both timeouts take a number of seconds above 0 (`2.5` works). Empty is the
 default; anything else (`0`, `-1`, `ten`) stops `serve`, `reindex` and
 `notebooks` from starting, with a message naming the variable.
 
-When a request runs out of time, the server asks Joplin's `/ping` (allowing it
-two seconds). If that gets no answer either, or the request was the second in a
-row to time out, Joplin is taken to be hung: for the next 30 seconds every tool
-call is refused at once with the same "didn't answer" message, without asking
-Joplin. When the 30 seconds are up, the next call pings first and goes ahead if
-Joplin answers. One slow answer on a Joplin that answers its ping holds nothing.
+When a request runs out of time, the server asks Joplin's `/ping`, with the same
+timeouts. If that gets no answer either, Joplin is taken to be hung: for the next
+30 seconds every tool call is refused at once with the same "didn't answer"
+message, without asking Joplin. When the 30 seconds are up, the next call pings
+first and goes ahead if Joplin answers; calls that come while it waits are still
+refused. A Joplin that answers its ping is never held, however slow a request
+was. In an outage the first call waits up to twice `SBJ_JOPLIN_TIMEOUT`, and the
+calls after it don't wait.
 See [Joplin didn't answer](troubleshooting.md#joplin-didnt-answer).
 
 Joplin's API takes the token in the address of each request, which is why Joplin should only ever

@@ -38,14 +38,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   expression (`AGPL-3.0-or-later`).
 
 - **A Joplin that hangs no longer costs ten seconds on every call** (#86). When
-  a request runs out of time and Joplin doesn't answer its `/ping` either (or it
-  is the second timeout in a row), every call for the next 30 seconds is refused
-  at once with the same message, without being sent; then one ping decides
-  whether calls go ahead. It applies to the tools, `joplin_reindex` and the
-  background index sync alike. In a real outage on 2026-11-19 every call took
-  the full ten seconds to fail. A slow answer on a Joplin that answers its ping
-  holds nothing, a note created while Joplin hangs is still reported as "may or
-  may not have been created", and `/healthz` still asks Joplin every time.
+  a request runs out of time and Joplin doesn't answer its `/ping` either, every
+  call for the next 30 seconds is refused at once with the same message, without
+  being sent; then one ping decides whether calls go ahead. It applies to the
+  tools, `joplin_reindex` and the background index sync alike. In a real outage
+  on 2026-11-19 every call took the full ten seconds to fail. A Joplin that
+  answers its ping is never held, however slow a request was; a note created
+  while Joplin hangs is still reported as "may or may not have been created";
+  and `/healthz` still asks Joplin every time.
 - **The audit log names what failed** (#86): a failed call's line ends in
   `outcome=error:JoplinUnavailableError`, `error:JoplinNotFoundError` and so on,
   by class name only, where it said `error:ToolError` for every one.
@@ -57,8 +57,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   index now records the version of such a note, so it is read once for each
   version. `added`, `updated` and `deleted` (from `joplin_reindex` and
   `second-brain-joplin reindex`) now count only notes with text: a note that
-  gains text counts as added, one that is emptied as updated. An existing index
-  needs no rebuild.
+  gains text counts as added, one that is emptied as updated. A note synced in
+  encrypted and not yet decrypted is not marked, so it is indexed once Joplin
+  decrypts it. An existing index needs no rebuild.
 - **The guides said a new chat is enough for Claude to see a changed tool. It
   isn't** (#68). Claude's apps keep the tool list they read from a connector.
   After a server was restarted with `SBJ_ASK_EVERY_TIME=false`, new Claude Duet
