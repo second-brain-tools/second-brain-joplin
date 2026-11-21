@@ -274,6 +274,12 @@ title or its id. That is all it can do. It can't change, move or delete a note
 and it can't write to a notebook the filter hides. Without the variable the tool
 isn't registered at all.
 
+With `SBJ_CREATE_NOTES_MAX` set too, `joplin_create_notes` creates up to that
+many notes (20 at most, and 100,000 characters in all) in one call. One approval
+then covers every note in the call, so set it only if that is what you want.
+Every note is checked before any is written; writing stops at the first one
+that fails, and the answer says which exist.
+
 A notebook made for the purpose is a good first setting, for example
 `SBJ_WRITE_NOTEBOOKS=Inbox`. `second-brain-joplin notebooks` marks the notebooks
 that can receive notes `writable`.
@@ -283,13 +289,14 @@ that can receive notes `writable`.
 You do, in your client, when the client asks. The server can't put its own
 question to you on every client (claude.ai's connector documentation doesn't
 list that part of MCP as supported), so the check on each note is the client's
-approval prompt for the call. That is why the call
+approval prompt for the call (with `joplin_create_notes`, one prompt covers all
+the notes of a call). That is why the call
 carries the whole note in readable form: the notebook by name, the title, the
 text. What you approve is what gets written.
 
 Whether a client asks is up to the client. The server does what it can to make
 Claude's clients ask: it marks every write tool (`joplin_create_note`,
-`joplin_edit_note` and `joplin_replace_note`) with
+`joplin_create_notes`, `joplin_edit_note` and `joplin_replace_note`) with
 `"anthropic/requiresUserInteraction": true`, which Claude Code documents as the
 way for a tool to require approval on every call. The table shows what each
 client did when tested in November 2026, with that mark and with the mark left

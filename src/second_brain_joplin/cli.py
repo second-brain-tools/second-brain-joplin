@@ -16,7 +16,13 @@ from . import __version__
 from .audit import configure_logging
 from .auth import AuthSettings, build_auth
 from .changes import refuse_kind, sha256
-from .config import Settings
+from .config import (
+    CONNECT_TIMEOUT_VAR,
+    CREATE_NOTES_CEILING,
+    CREATE_NOTES_MAX_VAR,
+    TIMEOUT_VAR,
+    Settings,
+)
 from .context import AppContext
 from .errors import JoplinError, NotebookFilterError, SemanticUnavailableError
 from .joplin_client import JoplinClient, JsonDict
@@ -295,6 +301,16 @@ async def fetch_notebooks(settings: Settings) -> tuple[list[JsonDict], list[Json
         await client.aclose()
 
 
+def _number_problem(name: str) -> str:
+    """What a number setting that can't be read should have been."""
+    got = os.environ.get(name, "")
+    if name in (TIMEOUT_VAR, CONNECT_TIMEOUT_VAR):
+        return f"{name} must be a number of seconds above 0, got {got!r}"
+    if name == CREATE_NOTES_MAX_VAR:
+        return f"{name} must be a whole number from 0 to {CREATE_NOTES_CEILING}, got {got!r}"
+    return f"{name} must be a whole number of at least 1, got {got!r}"
+
+
 def refuse_unreadable_settings(settings: Settings) -> None:
     """Refuse a setting whose value can't be read: a switch or a number of seconds.
 
@@ -305,10 +321,7 @@ def refuse_unreadable_settings(settings: Settings) -> None:
     problems = [
         f"{name} must be true or false, got {os.environ.get(name, '')!r}"
         for name in settings.unreadable_switches
-    ] + [
-        f"{name} must be a number of seconds above 0, got {os.environ.get(name, '')!r}"
-        for name in settings.unreadable_numbers
-    ]
+    ] + [_number_problem(name) for name in settings.unreadable_numbers]
     if problems:
         raise ServeConfigError("; ".join(problems))
 

@@ -18,6 +18,7 @@ def register_tools(
     writes: bool = False,
     edits: bool = False,
     replace_whole: bool = False,
+    create_notes_max: int = 0,
     ask_every_time: bool = True,
 ) -> None:
     """Register the MCP tools on the given FastMCP server; the write tools on request.
@@ -25,6 +26,8 @@ def register_tools(
     ``writes`` adds note creation (``SBJ_WRITE_NOTEBOOKS``); ``edits`` the tools that
     change notes and ``joplin_changes`` (``SBJ_EDIT_NOTEBOOKS``), and with
     ``replace_whole`` (``SBJ_REPLACE``) also the one that rewrites a whole note.
+    ``create_notes_max`` (``SBJ_CREATE_NOTES_MAX``) adds joplin_create_notes, with
+    ``writes`` only.
     ``ask_every_time``
     marks every write tool: see :func:`write.register`.
     """
@@ -32,6 +35,8 @@ def register_tools(
     semantic.register(mcp)
     if writes:
         write.register(mcp, ask_every_time=ask_every_time)
+        if create_notes_max:
+            write.register_many(mcp, max_notes=create_notes_max, ask_every_time=ask_every_time)
     if edits:
         changes.register(mcp)
         edit.register(mcp, ask_every_time=ask_every_time)

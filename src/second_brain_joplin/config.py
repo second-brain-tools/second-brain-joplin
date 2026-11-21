@@ -19,6 +19,9 @@ UNDO_DAYS_VAR = "SBJ_UNDO_DAYS"
 UNDO_MAX_MB_VAR = "SBJ_UNDO_MAX_MB"
 CHANGES_PER_DAY_VAR = "SBJ_CHANGES_PER_DAY"
 REPLACE_VAR = "SBJ_REPLACE"
+# joplin_create_notes (#69): the most notes one call may create; 0 leaves the tool out.
+CREATE_NOTES_MAX_VAR = "SBJ_CREATE_NOTES_MAX"
+CREATE_NOTES_CEILING = 20
 
 DEFAULT_EMBEDDING_BACKEND = "fastembed"
 DEFAULT_VECTOR_STORE = "sqlite-vec"
@@ -90,6 +93,18 @@ def _env_count(name: str, default: int) -> int | None:
     except ValueError:
         return None
     return value if value >= 1 else None
+
+
+def _env_up_to(name: str, ceiling: int) -> int | None:
+    """A whole number from 0 to ``ceiling``; 0 when unset or empty; None for anything else."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return 0
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if 0 <= value <= ceiling else None
 
 
 def _env_flag(name: str) -> bool | None:
@@ -164,6 +179,8 @@ class Settings(BaseModel):
     edit_notebooks: tuple[str, ...] = ()
     # Whether joplin_replace_note (#80), the bluntest change, is registered too.
     replace: bool = False
+    # The most notes joplin_create_notes may create in one call; 0 leaves it out.
+    create_notes_max: int = 0
     # The journal of old text (journal.py): where, for how long, how big; and the
     # most changes in one day. The journal is always on.
     undo_dir: str = ""
@@ -215,6 +232,7 @@ class Settings(BaseModel):
         """Build settings from ``JOPLIN_*`` / ``SBJ_*`` environment variables."""
         ask_every_time = _env_switch(ASK_EVERY_TIME_VAR)
         replace = _env_flag(REPLACE_VAR)
+        create_notes_max = _env_up_to(CREATE_NOTES_MAX_VAR, CREATE_NOTES_CEILING)
         timeout = _env_seconds(TIMEOUT_VAR, DEFAULT_TIMEOUT)
         connect_timeout = _env_seconds(CONNECT_TIMEOUT_VAR, DEFAULT_CONNECT_TIMEOUT)
         counts = {
@@ -240,13 +258,15 @@ class Settings(BaseModel):
                 for name, value in ((TIMEOUT_VAR, timeout), (CONNECT_TIMEOUT_VAR, connect_timeout))
                 if value is None
             )
-            + tuple(name for name, (value, _) in counts.items() if value is None),
+            + tuple(name for name, (value, _) in counts.items() if value is None)
+            + ((CREATE_NOTES_MAX_VAR,) if create_notes_max is None else ()),
             notebooks=_env_list("SBJ_NOTEBOOKS"),
             exclude_notebooks=_env_list("SBJ_EXCLUDE_NOTEBOOKS"),
             blank_filter_vars=_set_but_blank("SBJ_NOTEBOOKS", "SBJ_EXCLUDE_NOTEBOOKS"),
             write_notebooks=_env_list("SBJ_WRITE_NOTEBOOKS"),
             edit_notebooks=_env_list("SBJ_EDIT_NOTEBOOKS"),
             replace=replace is True,
+            create_notes_max=create_notes_max or 0,
             undo_dir=os.environ.get("SBJ_UNDO_DIR", "").strip() or default_undo_dir(),
             undo_days=count(UNDO_DAYS_VAR),
             undo_max_mb=count(UNDO_MAX_MB_VAR),

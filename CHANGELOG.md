@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`joplin_create_notes` creates several notes in one call** (#69): up to
+  `SBJ_CREATE_NOTES_MAX` (at most 20, 100,000 characters together), so one
+  approval covers a set, such as the notes out of a weekly review. Off unless
+  that setting is given: a server upgraded with its settings unchanged offers
+  the same tools as before. Every note is checked before any is written, and
+  the same note twice is refused; writing stops at the first failure and each
+  note's `outcome` says what exists; the same call again creates only what is
+  missing. Each note gets `joplin_create_note`'s checks and audit lines, and its
+  `chars` and `body_sha256`.
 - **`joplin_replace_note` rewrites the whole text of a note** (#80), for a
   short note rebuilt each time, which until now became a new note every time
   while the old copy waited to be deleted. It needs `SBJ_REPLACE` on as well as

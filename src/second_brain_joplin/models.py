@@ -120,6 +120,31 @@ class SearchResult(BaseModel):
     section_heading: str | None = None
 
 
+class CreatedItem(BaseModel):
+    """One item of joplin_create_notes, in the order given.
+
+    ``outcome`` is ``created``, ``already_created`` (a repeat found the note an
+    earlier call made), ``failed`` (nothing created; ``reason`` says why),
+    ``unconfirmed`` (it may or may not have been created) or ``not_attempted``
+    (writing stopped at an earlier item). ``id`` is set wherever a note exists or
+    may exist.
+    """
+
+    title: str
+    notebook: str
+    outcome: str
+    id: str | None = None
+    reason: str | None = None
+    chars: int = 0
+    body_sha256: str = ""
+
+
+class CreatedNotes(BaseModel):
+    """The result of joplin_create_notes: one entry per item, in order."""
+
+    notes: list[CreatedItem]
+
+
 class ChangedNote(BaseModel):
     """What a tool that changes a note did: enough to check it without reading it again."""
 

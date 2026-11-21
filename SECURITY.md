@@ -90,7 +90,9 @@ public issue. We aim to acknowledge reports within a few days.
   `SBJ_CHANGES_PER_DAY` changes are made in a day; a change that would drop a
   reference to an attachment is refused; `joplin_changes` lists what was
   changed ([Changing notes](docs/remote-access.md#changing-notes)). Nothing
-  moves or deletes a note. The check on each note is your client's
+  moves or deletes a note. With `SBJ_CREATE_NOTES_MAX`, `joplin_create_notes`
+  creates several notes in one call, so one approval covers them all. The check
+  on each call is your client's
   approval prompt, and the call carries the note in readable form so the prompt
   shows what will be written. Whether a client asks is the client's decision.
   The server marks the tool to ask Claude's clients to put every call to a

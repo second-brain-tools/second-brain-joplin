@@ -81,6 +81,7 @@ connectors (claude.ai, the Claude apps, Cowork) can reach it through a tunnel. S
 | `joplin_semantic_search` | Find notes by meaning (embeddings; `limit` 1–50) | No |
 | `joplin_reindex` | Build/refresh the semantic index | The local index only, never Joplin |
 | `joplin_create_note` | Add a new markdown note to a notebook you allow (`title`, `body`, `notebook` by title or id) | A new note, nothing else. Off by default |
+| `joplin_create_notes` | Add up to 20 new notes in one call | New notes, nothing else. Off by default (`SBJ_CREATE_NOTES_MAX`) |
 | `joplin_edit_note` | Change part of a note (exact text replaced), or add to a section, its start or its end | Changes a note, after keeping a copy of it. Off by default (`SBJ_EDIT_NOTEBOOKS`) |
 | `joplin_replace_note` | Replace the whole text of a short note that is rebuilt each time | Rewrites a note, after keeping a copy of it. Off by default (`SBJ_EDIT_NOTEBOOKS` and `SBJ_REPLACE`) |
 

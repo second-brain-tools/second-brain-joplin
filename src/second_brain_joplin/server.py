@@ -82,6 +82,7 @@ def create_server(
     writes: bool | None = None,
     edits: bool | None = None,
     replace_whole: bool | None = None,
+    create_notes_max: int | None = None,
     ask_every_time: bool | None = None,
 ) -> FastMCP:
     """Build the MCP server with its tools and the ``/healthz`` route.
@@ -121,6 +122,8 @@ def create_server(
         edits = settings.edits_enabled
     if replace_whole is None:
         replace_whole = settings.replace
+    if create_notes_max is None:
+        create_notes_max = settings.create_notes_max
     if ask_every_time is None:
         ask_every_time = settings.ask_every_time
     register_tools(
@@ -128,6 +131,7 @@ def create_server(
         writes=writes,
         edits=edits,
         replace_whole=replace_whole,
+        create_notes_max=create_notes_max,
         ask_every_time=ask_every_time,
     )
     server.custom_route("/healthz", methods=["GET"])(healthz)

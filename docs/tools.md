@@ -429,6 +429,36 @@ Returns:
 
 More in [Creating notes](remote-access.md#creating-notes).
 
+## `joplin_create_notes`
+
+Creates several new notes in one call: up to `SBJ_CREATE_NOTES_MAX` of them (at
+most 20), holding up to 100,000 characters together. It exists only when
+[`SBJ_CREATE_NOTES_MAX`](configuration.md#notebooks) is set as well as
+`SBJ_WRITE_NOTEBOOKS`, and one approval, where the client asks, covers every
+note in the call.
+
+| Argument | Type | Default | Allowed |
+|---|---|---|---|
+| `notes` | list | required | Each `{"title": …, "body": …, "notebook": …}`, with the rules of `joplin_create_note` |
+
+- **Every note is checked before any is written.** One bad notebook or title, or
+  the same note twice, refuses the whole call, naming the note.
+- **Notes are written in order.** If one fails, writing stops there, and the
+  answer says which notes exist. Sending the same call again within ten minutes
+  creates only the notes that are missing.
+- A call in which nothing was created, and nothing is in doubt, fails with an
+  error, as `joplin_create_note` does.
+
+Returns `notes`, one entry for each note in the order given:
+
+| Field | Type | |
+|---|---|---|
+| `title`, `notebook` | string | The note as asked for |
+| `outcome` | string | `created`, `already_created` (a repeat found the note), `failed`, `unconfirmed` (it may or may not have been created) or `not_attempted` (writing stopped before it) |
+| `id` | string or null | The note's id, wherever a note exists or may exist |
+| `reason` | string or null | Why it failed, or why it can't be told |
+| `chars`, `body_sha256` | integer, string | The text's length and checksum, to check a copy without reading it back |
+
 ## `joplin_edit_note`
 
 Changes part of a note, or adds text to a section, to its start or to its end.

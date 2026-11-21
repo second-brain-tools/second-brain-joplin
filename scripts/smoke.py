@@ -176,6 +176,14 @@ async def check_stdio(server: Server, joplin_down: dict[str, str]) -> None:
             "stdio: SBJ_ASK_EVERY_TIME=false leaves that mark off",
         )
 
+    batch = {**joplin_down, "SBJ_WRITE_NOTEBOOKS": "Inbox", "SBJ_CREATE_NOTES_MAX": "20"}
+    async with server.stdio(batch) as client:
+        names = await tool_names(client)
+        check(
+            names == READ_TOOLS | {WRITE_TOOL, "joplin_create_notes"},
+            "stdio: SBJ_CREATE_NOTES_MAX adds joplin_create_notes",
+        )
+
     async with server.stdio({**joplin_down, "SBJ_EDIT_NOTEBOOKS": "Inbox"}) as client:
         tools = {tool.name: tool for tool in await client.list_tools()}
         check(

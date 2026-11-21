@@ -26,14 +26,22 @@ from typing import Annotated
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from ..audit import caller_id
-from ..context import app_context
+from ..config import CREATE_NOTES_CEILING
+from ..context import AppContext, app_context
 from ..errors import JoplinAuthError, JoplinConnectionError, JoplinError, NotebookFilterError
 from ..failure import tool_error
 from ..joplin_client import JoplinClient
-from ..models import MAX_NOTE_CHARS, MAX_TITLE_CHARS, CreatedNote, epoch_ms_to_iso
+from ..models import (
+    MAX_NOTE_CHARS,
+    MAX_TITLE_CHARS,
+    CreatedItem,
+    CreatedNote,
+    CreatedNotes,
+    epoch_ms_to_iso,
+)
 from ..recent import note_key
 from ..scope import ID_RE, WriteTargets
 from .annotations import ASK_EVERY_TIME, CREATES_NOTE
@@ -138,82 +146,209 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
             raise tool_error(exc) from exc
         notebook_id, notebook_title = resolve_target(notebook, targets)
 
-        def done(note_id: str, created_time: object = None, *, repeat: bool = False) -> CreatedNote:
-            when = epoch_ms_to_iso(created_time) if isinstance(created_time, int) else None
-            return CreatedNote(
-                id=note_id,
-                title=note_title,
-                notebook_id=notebook_id,
-                notebook=notebook_title,
-                created_time=when,
-                already_created=repeat,
-                chars=len(body),
-                body_sha256=hashlib.sha256(body.encode()).hexdigest(),
-            )
+        return await create_one(app, notebook_id, notebook_title, note_title, body)
 
-        # A repeat of a request made a moment ago (a retry after a timeout, say)
-        # gets the note that request made, not a second copy.
-        key = note_key(notebook_id, note_title, body)
-        earlier = app.recent_notes.get(key)
-        if earlier is not None:
-            try:
-                if await app.client.note_exists(earlier):
-                    return done(earlier, repeat=True)
-            except JoplinError as exc:
-                raise tool_error(exc) from exc
 
-        # The id is ours, not Joplin's, so a request whose answer goes missing can
-        # be looked up afterwards. Ids only in the log: a title is note content.
-        note_id = uuid.uuid4().hex
-        who = caller_id()
+class Unconfirmed(ToolError):
+    """The note may or may not have been created: the request went out, no answer came."""
 
-        def record(what: str, level: int = logging.INFO) -> None:
-            audit_logger.log(
-                level, "note %s id=%s notebook=%s caller=%s", what, note_id, notebook_id, who
-            )
+    def __init__(self, message: str, note_id: str) -> None:
+        super().__init__(message)
+        self.note_id = note_id
 
-        def failed(exc: JoplinError) -> ToolError:
-            """Nothing was created: say why, and forget the id."""
-            app.recent_notes.forget(key)
-            record("create failed")
-            return tool_error(exc)
 
-        def unconfirmed(exc: JoplinError) -> ToolError:
-            """Can't tell. The id stays remembered, so a repeat looks for it first."""
-            record("create unconfirmed", logging.WARNING)
-            return ToolError(
-                f"{exc} The note may or may not have been created: look in Joplin, or try "
-                "again in a moment (a repeat of this request won't make a second copy)."
-            )
+async def create_one(
+    app: AppContext, notebook_id: str, notebook_title: str, note_title: str, body: str
+) -> CreatedNote:
+    """Create one note in a notebook already checked to be writable, once.
 
-        app.recent_notes.put(key, note_id)
-        record("create sent")
+    Raises :class:`ToolError` when nothing was created, :class:`Unconfirmed` when
+    it can't be told yet. A repeat of a request made a few minutes ago returns the
+    note that request made (``already_created``).
+    """
+
+    def done(note_id: str, created_time: object = None, *, repeat: bool = False) -> CreatedNote:
+        when = epoch_ms_to_iso(created_time) if isinstance(created_time, int) else None
+        return CreatedNote(
+            id=note_id,
+            title=note_title,
+            notebook_id=notebook_id,
+            notebook=notebook_title,
+            created_time=when,
+            already_created=repeat,
+            chars=len(body),
+            body_sha256=hashlib.sha256(body.encode()).hexdigest(),
+        )
+
+    # A repeat of a request made a moment ago (a retry after a timeout, say)
+    # gets the note that request made, not a second copy.
+    key = note_key(notebook_id, note_title, body)
+    earlier = app.recent_notes.get(key)
+    if earlier is not None:
         try:
-            created = await app.client.create_note(note_id, note_title, body, notebook_id)
-        except JoplinAuthError as exc:
-            raise failed(exc) from exc
-        except JoplinConnectionError as exc:
-            if not exc.maybe_sent:  # it never left this machine
-                raise failed(exc) from exc
-            # Sent, but no answer. If the note isn't there, Joplin may still be
-            # saving it, so "not there" is not yet "not created".
-            if not await _landed(app.client, note_id):
-                raise unconfirmed(exc) from exc
-            created = {"id": note_id}
-        except JoplinError as exc:  # Joplin answered, and the answer was an error
-            landed = await _landed(app.client, note_id)
-            if landed is None:
-                raise unconfirmed(exc) from exc
-            if not landed:
-                raise failed(exc) from exc
-            created = {"id": note_id}
+            if await app.client.note_exists(earlier):
+                return done(earlier, repeat=True)
+        except JoplinError as exc:
+            raise tool_error(exc) from exc
 
-        created_id = str(created.get("id") or note_id)
-        if created_id != note_id:  # Joplin chose an id of its own after all
-            app.recent_notes.put(key, created_id)
-            note_id = created_id
-        record("created")
-        return done(note_id, created.get("created_time"))
+    # The id is ours, not Joplin's, so a request whose answer goes missing can
+    # be looked up afterwards. Ids only in the log: a title is note content.
+    note_id = uuid.uuid4().hex
+    who = caller_id()
+
+    def record(what: str, level: int = logging.INFO) -> None:
+        audit_logger.log(
+            level, "note %s id=%s notebook=%s caller=%s", what, note_id, notebook_id, who
+        )
+
+    def failed(exc: JoplinError) -> ToolError:
+        """Nothing was created: say why, and forget the id."""
+        app.recent_notes.forget(key)
+        record("create failed")
+        return tool_error(exc)
+
+    def unconfirmed(exc: JoplinError) -> Unconfirmed:
+        """Can't tell. The id stays remembered, so a repeat looks for it first."""
+        record("create unconfirmed", logging.WARNING)
+        return Unconfirmed(
+            f"{exc} The note may or may not have been created: look in Joplin, or try "
+            "again in a moment (a repeat of this request won't make a second copy).",
+            note_id,
+        )
+
+    app.recent_notes.put(key, note_id)
+    record("create sent")
+    try:
+        created = await app.client.create_note(note_id, note_title, body, notebook_id)
+    except JoplinAuthError as exc:
+        raise failed(exc) from exc
+    except JoplinConnectionError as exc:
+        if not exc.maybe_sent:  # it never left this machine
+            raise failed(exc) from exc
+        # Sent, but no answer. If the note isn't there, Joplin may still be
+        # saving it, so "not there" is not yet "not created".
+        if not await _landed(app.client, note_id):
+            raise unconfirmed(exc) from exc
+        created = {"id": note_id}
+    except JoplinError as exc:  # Joplin answered, and the answer was an error
+        landed = await _landed(app.client, note_id)
+        if landed is None:
+            raise unconfirmed(exc) from exc
+        if not landed:
+            raise failed(exc) from exc
+        created = {"id": note_id}
+
+    created_id = str(created.get("id") or note_id)
+    if created_id != note_id:  # Joplin chose an id of its own after all
+        app.recent_notes.put(key, created_id)
+        note_id = created_id
+    record("created")
+    return done(note_id, created.get("created_time"))
+
+
+class NewNote(BaseModel):
+    """One note for joplin_create_notes."""
+
+    title: Annotated[str, Field(min_length=1, max_length=MAX_TITLE_CHARS)]
+    body: Annotated[str, Field(max_length=MAX_NOTE_CHARS)]
+    notebook: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=MAX_TITLE_CHARS,
+            description="The notebook: its exact title, or its id.",
+        ),
+    ]
+
+
+def register_many(mcp: FastMCP, *, max_notes: int, ask_every_time: bool = True) -> None:
+    """Register joplin_create_notes (#69), for up to ``max_notes`` notes a call."""
+
+    @mcp.tool(annotations=CREATES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    async def joplin_create_notes(
+        ctx: Context,
+        notes: Annotated[
+            list[NewNote],
+            Field(
+                min_length=1,
+                max_length=CREATE_NOTES_CEILING,
+                description=f"The notes to create, in order: at most {max_notes}.",
+            ),
+        ],
+    ) -> CreatedNotes:
+        """Create several new notes in one call, in notebooks that accept new notes.
+
+        Use it only for notes the user asked for, and first tell them each
+        notebook, title and what each note will say. Every note is checked before
+        any is written: one bad notebook or title refuses the whole call. Notes
+        are written in order; if one fails, writing stops there and the result
+        says which notes exist. Sending the same call again creates only the
+        notes that are missing.
+        """
+        if len(notes) > max_notes:
+            raise ToolError(f"This server creates at most {max_notes} notes in one call.")
+        total = sum(len(n.body) for n in notes)
+        if total > MAX_NOTE_CHARS:
+            raise ToolError(
+                f"The notes hold {total:,} characters together, over the limit of "
+                f"{MAX_NOTE_CHARS:,} for one call."
+            )
+        app = app_context(ctx)
+        try:
+            targets = await app.write_targets()
+        except (JoplinError, NotebookFilterError) as exc:
+            raise tool_error(exc) from exc
+        planned: list[tuple[str, str, str, str]] = []
+        seen: dict[str, int] = {}
+        for number, item in enumerate(notes, start=1):
+            try:
+                note_title = clean_title(item.title)
+                notebook_id, notebook_title = resolve_target(item.notebook, targets)
+            except ToolError as exc:
+                raise ToolError(f"Note {number}: {exc} Nothing was created.") from exc
+            key = note_key(notebook_id, note_title, item.body)
+            if key in seen:
+                raise ToolError(
+                    f"Notes {seen[key]} and {number} are the same note, so nothing was "
+                    "created. Send each note once."
+                )
+            seen[key] = number
+            planned.append((notebook_id, notebook_title, note_title, item.body))
+
+        results: list[CreatedItem] = []
+        stopped = False
+        for notebook_id, notebook_title, note_title, body in planned:
+            digest = hashlib.sha256(body.encode()).hexdigest()
+            entry = CreatedItem(
+                title=note_title,
+                notebook=notebook_title,
+                outcome="not_attempted",
+                chars=len(body),
+                body_sha256=digest,
+            )
+            if not stopped:
+                try:
+                    made = await create_one(app, notebook_id, notebook_title, note_title, body)
+                except Unconfirmed as exc:
+                    entry = entry.model_copy(
+                        update={"outcome": "unconfirmed", "id": exc.note_id, "reason": str(exc)}
+                    )
+                    stopped = True
+                except ToolError as exc:
+                    entry = entry.model_copy(update={"outcome": "failed", "reason": str(exc)})
+                    stopped = True
+                else:
+                    entry = entry.model_copy(
+                        update={
+                            "outcome": "already_created" if made.already_created else "created",
+                            "id": made.id,
+                        }
+                    )
+            results.append(entry)
+        # Nothing exists and nothing is in doubt: a plain failure, as for one note.
+        if all(r.outcome in ("failed", "not_attempted") for r in results):
+            raise ToolError(results[0].reason or "No note was created.")
+        return CreatedNotes(notes=results)
 
 
 async def _landed(client: JoplinClient, note_id: str) -> bool | None:
