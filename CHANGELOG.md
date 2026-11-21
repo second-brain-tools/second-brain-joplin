@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`joplin_list_notes` lists the notes in one notebook** (#84), a page at a
+  time (`limit` up to 100, `offset`, `next_offset`), newest first or by title,
+  with `total`. Only the notebook's own notes; the trash and conflict copies are
+  left out. "What is in my Inbox?" had no direct answer before: a search needs a
+  query and stopped at 50.
 - **`joplin_read` says more about a note, and `joplin_read_notes` reads up to
   20 at once** (#85). A read now returns the note's `notebook` and
   `notebook_path` (from the topmost visible notebook down), its `tags`, the

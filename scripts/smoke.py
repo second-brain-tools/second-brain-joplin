@@ -51,6 +51,7 @@ READ_TOOLS = {
     "joplin_search",
     "joplin_read",
     "joplin_read_notes",
+    "joplin_list_notes",
     "joplin_recent",
     "joplin_semantic_search",
     "joplin_reindex",

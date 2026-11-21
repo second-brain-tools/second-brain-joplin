@@ -211,6 +211,7 @@ class FakeJoplin:
         respx.get(f"{self.base_url}/notes").mock(side_effect=self._notes)
         respx.get(f"{self.base_url}/search").mock(side_effect=self._search)
         respx.post(f"{self.base_url}/notes").mock(side_effect=self._create)
+        respx.get(url__regex=rf"{base}/folders/[^/?]+/notes").mock(side_effect=self._folder_notes)
         respx.get(url__regex=rf"{base}/notes/[^/?]+/tags").mock(side_effect=self._tags_of)
         respx.get(url__regex=rf"{base}/notes/[^/?]+/resources").mock(side_effect=self._resources_of)
         respx.get(url__regex=rf"{base}/resources/[^/?]+/notes").mock(side_effect=self._users_of)
@@ -232,6 +233,16 @@ class FakeJoplin:
     def refer(self, note_id: str, resource_id: str) -> None:
         """Make a note refer to an existing attachment."""
         self.note_resources.setdefault(note_id, []).append(resource_id)
+
+    def _folder_notes(self, request: httpx.Request) -> httpx.Response:
+        """A notebook's own notes; Joplin leaves the trash out, not conflict copies."""
+        folder_id = request.url.path.split("/")[-2]
+        rows = [
+            {"is_todo": 0, "is_conflict": 0, **n}
+            for n in self.notes.values()
+            if n["parent_id"] == folder_id and not n.get("deleted_time")
+        ]
+        return self._page(request, rows)
 
     def _tags_of(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request.url.path)

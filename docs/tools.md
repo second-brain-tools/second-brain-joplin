@@ -241,6 +241,32 @@ Returns:
 A note cut short has `next_offset` set; read the rest, or one section of it,
 with `joplin_read`. `total_chars` is the length of the whole note.
 
+## `joplin_list_notes`
+
+Lists the notes in one notebook, a page at a time.
+
+| Argument | Type | Default | Allowed |
+|---|---|---|---|
+| `notebook` | string | required | The notebook's exact title, or its id |
+| `limit` | integer | `50` | 1 to 100 |
+| `offset` | integer | `0` | 0 or more: where the page starts |
+| `order` | string | `updated` | `updated` (newest first) or `title` (A to Z) |
+
+Returns:
+
+| Field | Type | |
+|---|---|---|
+| `notebook_id`, `notebook` | string | The notebook listed |
+| `notes` | list | Each note's `id`, `title`, `updated_time` and `is_todo` |
+| `total` | integer | How many notes the notebook holds |
+| `next_offset` | integer or null | Where the next page starts; null on the last page |
+
+Only the notebook's own notes are listed: [`joplin_overview`](#joplin_overview)
+shows its sub-notebooks. Notes in the trash and conflict copies are left out,
+and `total` doesn't count them. A title two notebooks share is refused with
+their ids; use one of those. A hidden notebook gets the same answer as one that
+doesn't exist: `No notebook has that title or id.`
+
 ## `joplin_recent`
 
 Lists the notes changed in the last N days, newest first. "Changed" is Joplin's
@@ -412,6 +438,7 @@ which notebooks every tool can see:
 | `joplin_overview` | Lists visible notebooks only. A visible notebook under a hidden one moves to the top of the tree |
 | `joplin_search` | Leaves hidden notes out, and keeps reading until `limit` is filled or 20 pages are read. `notebook:` and `-notebook:` match visible notebooks only: a hidden notebook answers like one that doesn't exist, even when its sub-notebook is visible |
 | `joplin_recent` | Leaves hidden notes out, and keeps reading until `limit` is filled |
+| `joplin_list_notes` | Answers for a hidden notebook exactly as for one that doesn't exist |
 | `joplin_read`, `joplin_read_notes` | Answer for a hidden note exactly as for one that doesn't exist. `notebook_path` starts at the topmost visible notebook, so a hidden parent's name never appears. An attachment that a hidden note also uses is left out, as if it didn't exist |
 | `joplin_semantic_search` | Returns only notes that are visible at that moment |
 | `joplin_reindex` | Indexes visible notes only, and drops notes that became hidden |

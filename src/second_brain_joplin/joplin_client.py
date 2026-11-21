@@ -259,6 +259,17 @@ class JoplinClient:
         data: JsonDict = (await self._get(f"/notes/{note_id}", params)).json()
         return data
 
+    async def get_folder_notes(self, folder_id: str) -> list[JsonDict]:
+        """Every note directly in one notebook (not its sub-notebooks), without bodies.
+
+        Joplin's own listing leaves out notes in the trash. Conflict copies are
+        flagged by ``is_conflict``, for the caller to leave out.
+        """
+        return await self._get_paginated(
+            f"/folders/{folder_id}/notes",
+            {"fields": "id,title,updated_time,is_todo,is_conflict,parent_id"},
+        )
+
     async def get_note_tags(self, note_id: str) -> list[JsonDict]:
         """The tags on one note (id and title)."""
         return await self._get_paginated(f"/notes/{note_id}/tags", {"fields": "id,title"})

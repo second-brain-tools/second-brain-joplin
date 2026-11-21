@@ -18,6 +18,7 @@ MAX_SEMANTIC_LIMIT = 50
 # each), however few of them the notebook filter lets through.
 MAX_SEARCH_PAGES = 20
 MAX_RECENT_LIMIT = 100
+MAX_LIST_LIMIT = 100
 MAX_RECENT_DAYS = 3650
 READ_DEFAULT_CHARS = 50_000
 READ_MAX_CHARS = 100_000
@@ -117,6 +118,25 @@ class SearchResult(BaseModel):
     snippet: str | None = None
     section: str | None = None
     section_heading: str | None = None
+
+
+class ListedNote(BaseModel):
+    """A note in a notebook's listing."""
+
+    id: str
+    title: str
+    updated_time: str
+    is_todo: bool
+
+
+class NoteListing(BaseModel):
+    """One page of a notebook's own notes. ``next_offset`` is null on the last page."""
+
+    notebook_id: str
+    notebook: str
+    notes: list[ListedNote]
+    total: int
+    next_offset: int | None = None
 
 
 class Notebook(BaseModel):

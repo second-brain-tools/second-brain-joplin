@@ -2,7 +2,7 @@
 
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -14,6 +14,7 @@ from ..joplin_client import JoplinClient, JsonDict
 from ..markdown import SectionError, find_section, section_at
 from ..markdown import outline as _outline
 from ..models import (
+    MAX_LIST_LIMIT,
     MAX_RECENT_DAYS,
     MAX_RECENT_LIMIT,
     MAX_SEARCH_LIMIT,
@@ -23,8 +24,10 @@ from ..models import (
     READ_NOTES_BUDGET,
     READ_NOTES_MAX,
     Attachment,
+    ListedNote,
     Note,
     Notebook,
+    NoteListing,
     NotesRead,
     RecentNote,
     SearchResult,
@@ -32,6 +35,7 @@ from ..models import (
     excerpt,
 )
 from ..scope import (
+    ID_RE,
     NOTE_REF_PATTERN,
     UNFILTERED,
     NotebookScope,
@@ -87,6 +91,29 @@ def _build_overview(
         )
 
     return [build(folder) for folder in shown if folder.get("parent_id", "") not in shown_ids]
+
+
+NO_SUCH_NOTEBOOK = "No notebook has that title or id."
+
+
+def _visible_notebook(wanted: str, visible: dict[str, str]) -> str:
+    """The id of the visible notebook ``wanted`` names, by id or exact title.
+
+    A hidden notebook gets the same answer as one that doesn't exist. A title two
+    visible notebooks share is refused: the id is needed then.
+    """
+    wanted = wanted.strip()
+    if ID_RE.fullmatch(wanted):
+        if wanted.lower() in visible:
+            return wanted.lower()
+        raise JoplinNotFoundError(NO_SUCH_NOTEBOOK)
+    matches = [notebook_id for notebook_id, title in visible.items() if title == wanted]
+    if not matches:
+        raise JoplinNotFoundError(NO_SUCH_NOTEBOOK)
+    if len(matches) > 1:
+        ids = ", ".join(sorted(matches))
+        raise JoplinNotFoundError(f"Two or more notebooks have that title; use the id ({ids}).")
+    return matches[0]
 
 
 def share_budget(lengths: list[int], budget: int) -> list[int]:
@@ -387,6 +414,68 @@ def register(mcp: FastMCP) -> None:
                 )
             )
         return NotesRead(notes=notes, not_found=not_found, budget=READ_NOTES_BUDGET)
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def joplin_list_notes(
+        ctx: Context,
+        notebook: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=300,
+                description="The notebook: its exact title, or its id.",
+            ),
+        ],
+        limit: Annotated[int, Field(ge=1, le=MAX_LIST_LIMIT)] = 50,
+        offset: Annotated[int, Field(ge=0)] = 0,
+        order: Annotated[
+            Literal["updated", "title"],
+            Field(description="'updated' (newest first) or 'title' (A to Z)."),
+        ] = "updated",
+    ) -> NoteListing:
+        """List the notes in one notebook, a page at a time.
+
+        Only the notebook's own notes: ``joplin_overview`` shows its
+        sub-notebooks. Notes in the trash and conflict copies are left out. When
+        ``next_offset`` is set, call again with ``offset=next_offset``.
+        """
+        app = app_context(ctx)
+        try:
+            folders = await app.client.get_folders()
+            scope = scope_of(app.settings, folders)
+            visible = {f["id"]: f.get("title", "") for f in folders if scope.allows(f["id"])}
+            folder_id = _visible_notebook(notebook, visible)
+            rows = await app.client.get_folder_notes(folder_id)
+        except (JoplinError, NotebookFilterError) as exc:
+            raise tool_error(exc) from exc
+        notes = [
+            row
+            for row in rows
+            if not row.get("is_conflict")
+            and not row.get("deleted_time")
+            and row.get("parent_id", folder_id) == folder_id
+        ]
+        if order == "title":
+            notes.sort(key=lambda row: (str(row.get("title", "")).casefold(), row["id"]))
+        else:
+            notes.sort(key=lambda row: (-int(row.get("updated_time", 0)), row["id"]))
+        page = notes[offset : offset + limit]
+        end = offset + len(page)
+        return NoteListing(
+            notebook_id=folder_id,
+            notebook=visible[folder_id],
+            notes=[
+                ListedNote(
+                    id=row["id"],
+                    title=row.get("title", ""),
+                    updated_time=epoch_ms_to_iso(int(row.get("updated_time", 0))),
+                    is_todo=bool(row.get("is_todo")),
+                )
+                for row in page
+            ],
+            total=len(notes),
+            next_offset=end if end < len(notes) else None,
+        )
 
     @mcp.tool(annotations=READ_ONLY)
     async def joplin_recent(
