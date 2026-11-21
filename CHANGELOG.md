@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Search results say where the match is** (#97). Each `joplin_search` hit
+  gains `notebook_id`, `updated_time`, a `snippet` around the first word of the
+  query found in the text, and the `section` and `section_heading` that hold
+  it, which `joplin_read` takes to read just that part. `limit` goes up to 100,
+  and the tool's description lists Joplin's search words.
 - **Read a long note by its outline, or one section of it** (#99).
   `joplin_read` takes `outline: true` (one line per section: its path, its
   length and its heading) or `section` (a path such as `1.2`, or a heading's
@@ -59,6 +64,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A notebook filter could be partly seen through a search's `notebook:`
+  word** (#97). Joplin matches `notebook:"Name"` against every notebook title,
+  with `LIKE` wildcards, and takes in each match's sub-notebooks. With a filter
+  that shows only a sub-notebook, searching for its hidden parent's name, or a
+  pattern such as `Par%`, returned the visible notes under it, which confirmed
+  that the hidden notebook existed and what it was called; `-notebook:` with a
+  hidden name changed the results in the same way. No note the filter hides was
+  ever returned. Checked on Joplin 3.7.24. With a filter set, the server now
+  matches `notebook:` and `-notebook:` against the visible notebooks only, so a
+  hidden notebook answers exactly as one that doesn't exist, with the same
+  requests to Joplin. Every search now also stops after 20 pages of Joplin's
+  answer. A server with no notebook filter (as on most installs) was not
+  affected.
 - **A note with no text was counted as added at every index sync** (#87), and
   fetched from Joplin again each time, because nothing was stored for it. The
   index now records the version of such a note, so it is read once for each

@@ -72,7 +72,7 @@ connectors (claude.ai, the Claude apps, Cowork) can reach it through a tunnel. S
 | Tool | Description | Writes? |
 |---|---|---|
 | `joplin_overview` | List all notebooks with note counts | No |
-| `joplin_search` | Keyword search across all notes (`limit` 1–50) | No |
+| `joplin_search` | Keyword search with Joplin's search words; each hit says its notebook and where the match is (`limit` 1–100) | No |
 | `joplin_read` | Read a note by ID, a page at a time (`offset`, `max_chars` up to 100,000), or its outline, or one section (`outline`, `section`) | No |
 | `joplin_recent` | Notes modified in the last N days (`days` 1–3650, `limit` 1–100) | No |
 | `joplin_semantic_search` | Find notes by meaning (embeddings; `limit` 1–50) | No |

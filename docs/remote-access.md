@@ -199,7 +199,10 @@ What a filter changes:
 - **`joplin_overview`** lists visible notebooks only. A visible notebook under a
   hidden one moves to the top of the tree, so the hidden parent's name isn't shown.
 - **`joplin_search` and `joplin_recent`** leave hidden notes out, and keep reading
-  Joplin's results until `limit` is filled.
+  Joplin's results until `limit` is filled (a search, for 20 pages at most). A
+  search's `notebook:` and `-notebook:` words match visible notebooks only, so a
+  hidden notebook answers exactly as one that doesn't exist, even when a
+  sub-notebook of it is visible.
 - **`joplin_read`** answers for a hidden note exactly as it does for a note that
   doesn't exist.
 - **Semantic search** never indexes a hidden note, and drops one that becomes

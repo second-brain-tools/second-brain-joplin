@@ -12,7 +12,11 @@ EXCERPT_LENGTH = 200
 
 # Bounds on what one tool call may ask for. Claude caps a tool result near 150,000
 # characters, so a single page of a note stays well under that.
-MAX_SEARCH_LIMIT = 50
+MAX_SEARCH_LIMIT = 100
+MAX_SEMANTIC_LIMIT = 50
+# A keyword search looks at no more than this many pages of Joplin's answer (100 hits
+# each), however few of them the notebook filter lets through.
+MAX_SEARCH_PAGES = 20
 MAX_RECENT_LIMIT = 100
 MAX_RECENT_DAYS = 3650
 READ_DEFAULT_CHARS = 50_000
@@ -67,11 +71,20 @@ class RecentNote(BaseModel):
 
 
 class SearchResult(BaseModel):
-    """A search hit: note identity plus a short body excerpt."""
+    """A search hit: the note, the start of its text, and where the match is.
+
+    ``snippet``, ``section`` and ``section_heading`` are null when the query has
+    no plain word to find in the body (a filter-only query such as ``tag:x``).
+    """
 
     id: str
     title: str
     excerpt: str
+    notebook_id: str = ""
+    updated_time: str | None = None
+    snippet: str | None = None
+    section: str | None = None
+    section_heading: str | None = None
 
 
 class Notebook(BaseModel):

@@ -117,6 +117,9 @@ which it does every few minutes. Synchronise it by hand to see the note now.
 own search and follows [its rules](https://joplinapp.org/help/apps/search): it
 matches whole words. Search for `remodel*` to match "remodelling", put a phrase
 in double quotes, or use `joplin_semantic_search`, which matches by meaning.
+With a notebook filter that hides most notes, a search stops after 20 pages of
+Joplin's answer (2,000 notes) and can return fewer than `limit` hits: add a word,
+or a `notebook:` filter for the notebook you mean.
 
 **A whole notebook is missing.** It is hidden by `SBJ_NOTEBOOKS` or
 `SBJ_EXCLUDE_NOTEBOOKS`. `second-brain-joplin notebooks` shows which notebooks

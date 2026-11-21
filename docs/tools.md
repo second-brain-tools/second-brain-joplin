@@ -70,14 +70,22 @@ Returns a list of top-level notebooks, each with:
 
 ## `joplin_search`
 
-Finds notes by keyword, using Joplin's own search. The query takes
-[Joplin's search syntax](https://joplinapp.org/help/apps/search), so
-`title:remodel`, `tag:todo` and `"exact phrase"` work as they do in the app.
+Finds notes by keyword, using Joplin's own search, and says where in each note
+the match is. The query takes
+[Joplin's search syntax](https://joplinapp.org/help/apps/search):
+
+- Plain words must all match; `any:1 word1 word2` matches any of them.
+  `"exact phrase"`, `word*` for a prefix, `-word` to leave a word out.
+- Filters, combined with spaces, each negated with `-`: `notebook:"Name"` (the
+  notebook and its sub-notebooks), `tag:name`, `title:word`, `body:word`,
+  `type:todo` or `type:note`, `iscompleted:0` or `1`, `created:20261101` or
+  `created:day-7` (also `week-`, `month-`, `year-`), `updated:…`, `due:…`,
+  `sourceurl:…`, `resource:image/png`.
 
 | Argument | Type | Default | Allowed |
 |---|---|---|---|
 | `query` | string | required | Any Joplin search query |
-| `limit` | integer | `10` | 1 to 50 |
+| `limit` | integer | `10` | 1 to 100 |
 
 Returns a list of hits, in Joplin's order:
 
@@ -86,19 +94,37 @@ Returns a list of hits, in Joplin's order:
 | `id` | string | The note's id, for `joplin_read` |
 | `title` | string | The note's title |
 | `excerpt` | string | The first 200 characters of the note on one line, ending in `…` when cut |
+| `notebook_id` | string | The id of the notebook it is in |
+| `updated_time` | string | When it was last changed |
+| `snippet` | string or null | About 200 characters around the first place a word of the query appears in the text, on one line |
+| `section` | string or null | The section that holds that place, as a path `joplin_read` takes (`1.2`; `0` before the first heading) |
+| `section_heading` | string or null | That section's heading |
 
 ```json
 [
   {
     "id": "4be0a1c2d3e4f5061728394a5b6c7d8e",
     "title": "Cabinet quotes",
-    "excerpt": "Three quotes so far. - Northside: 8,400 - Hale & Sons: 9,150, installed"
+    "excerpt": "Three quotes so far. - Northside: 8,400 - Hale & Sons: 9,150, installed",
+    "notebook_id": "0b7e3f9a1c2d4e5f8a7b6c5d4e3f2a1b",
+    "updated_time": "2026-11-09T21:40:27.512000+00:00",
+    "snippet": "…- Hale & Sons: 9,150, installed - Westbrook: waiting on a site visit…",
+    "section": "1",
+    "section_heading": "Quotes"
   }
 ]
 ```
 
-The excerpt is the start of the note, not the part that matched. To find a note
-by what it means when you don't know its words, use
+`snippet`, `section` and `section_heading` are null when the query has no plain
+word to look for in the text, as for `tag:kitchen` alone. A section's path is
+what [`joplin_read`](#joplin_read) takes as `section`; the heading's text works
+there too when no other heading has it.
+
+A search reads at most 20 pages of Joplin's answer (2,000 notes). With a
+notebook filter that hides most of them, a search can therefore return fewer
+than `limit` hits; narrow the query with more words or a `notebook:` filter.
+
+To find a note by what it means when you don't know its words, use
 [`joplin_semantic_search`](#joplin_semantic_search).
 
 ## `joplin_read`
@@ -351,7 +377,8 @@ which notebooks every tool can see:
 | Tool | With a filter |
 |---|---|
 | `joplin_overview` | Lists visible notebooks only. A visible notebook under a hidden one moves to the top of the tree |
-| `joplin_search`, `joplin_recent` | Leave hidden notes out, and keep reading until `limit` is filled |
+| `joplin_search` | Leaves hidden notes out, and keeps reading until `limit` is filled or 20 pages are read. `notebook:` and `-notebook:` match visible notebooks only: a hidden notebook answers like one that doesn't exist, even when its sub-notebook is visible |
+| `joplin_recent` | Leaves hidden notes out, and keeps reading until `limit` is filled |
 | `joplin_read` | Answers for a hidden note exactly as for one that doesn't exist |
 | `joplin_semantic_search` | Returns only notes that are visible at that moment |
 | `joplin_reindex` | Indexes visible notes only, and drops notes that became hidden |

@@ -236,7 +236,7 @@ async def test_read_counts_characters_not_bytes() -> None:
     [
         ("joplin_search", {"query": "q", "limit": 0}),
         ("joplin_search", {"query": "q", "limit": -1}),
-        ("joplin_search", {"query": "q", "limit": 51}),
+        ("joplin_search", {"query": "q", "limit": 101}),
         ("joplin_search", {"query": "q", "limit": 10**9}),
         ("joplin_recent", {"limit": 0}),
         ("joplin_recent", {"limit": 101}),
@@ -273,7 +273,7 @@ async def test_limits_at_the_ceiling_are_accepted() -> None:
         return_value=httpx.Response(200, json={"items": [], "has_more": False})
     )
     async with Client(mcp) as client:
-        result = await client.call_tool("joplin_search", {"query": "q", "limit": 50})
+        result = await client.call_tool("joplin_search", {"query": "q", "limit": 100})
     assert result.data == []
 
 

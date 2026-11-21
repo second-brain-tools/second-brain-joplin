@@ -139,6 +139,7 @@ class FakeJoplin:
         self.folders: dict[str, dict[str, Any]] = {}
         self.notes: dict[str, dict[str, Any]] = {}
         self.requests: list[str] = []  # the path of every request, in order
+        self.queries: list[str] = []  # the query of every /search request
         self.pings = 0  # requests to /ping, kept apart from `requests`
         self.down = False
         # Accept connections and answer nothing: every request times out.
@@ -247,11 +248,58 @@ class FakeJoplin:
         return self._page(request, rows)
 
     def _search(self, request: httpx.Request) -> httpx.Response:
-        query = request.url.params.get("query", "").lower()
+        """Joplin's search, as far as the tests need it.
+
+        ``notebook:`` and ``-notebook:`` match notebook titles with SQL ``LIKE``
+        (``*``, ``%`` and ``_`` wildcards, either case) and take in every
+        sub-notebook, across the whole vault, as Joplin 3.7 does. Every other
+        word must appear in the title or the body.
+        """
+        query = request.url.params.get("query", "")
+        self.queries.append(query)
+        include: list[str] = []
+        exclude: list[str] = []
+
+        def term(match: re.Match[str]) -> str:
+            value = match.group(2).strip('"')
+            (exclude if match.group(1) else include).append(value)
+            return " "
+
+        words = (
+            re.sub(r'(?<!\S)(-?)notebook:("[^"]*"|\S+)', term, query, flags=re.I).lower().split()
+        )
+
+        def matched(patterns: list[str]) -> set[str]:
+            regexes = [
+                re.compile(
+                    "".join(".*" if c in "%*" else "." if c == "_" else re.escape(c) for c in p),
+                    re.I,
+                )
+                for p in patterns
+            ]
+            roots = {
+                f
+                for f, row in self.folders.items()
+                if any(r.fullmatch(row["title"]) for r in regexes)
+            }
+            found = set(roots)
+            grew = True
+            while grew:
+                grew = False
+                for f, row in self.folders.items():
+                    if f not in found and row["parent_id"] in found:
+                        found.add(f)
+                        grew = True
+            return found
+
+        inside = matched(include) if include else None
+        outside = matched(exclude)
         rows = [
             note
             for note in self.notes.values()
-            if query in note["title"].lower() or query in note["body"].lower()
+            if (inside is None or note["parent_id"] in inside)
+            and note["parent_id"] not in outside
+            and all(w in note["title"].lower() or w in note["body"].lower() for w in words)
         ]
         return self._page(request, rows)
 

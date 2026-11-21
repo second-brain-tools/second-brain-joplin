@@ -124,6 +124,15 @@ class _Notebooks:
         return found
 
 
+def subtrees(folders: Sequence[JsonDict], roots: set[str]) -> set[str]:
+    """Each of ``roots`` with every notebook under it."""
+    notebooks = _Notebooks(folders)
+    found: set[str] = set()
+    for root in roots:
+        found |= notebooks.subtree(root)
+    return found
+
+
 def resolve_scope(
     include: Sequence[str], exclude: Sequence[str], folders: Sequence[JsonDict]
 ) -> NotebookScope:

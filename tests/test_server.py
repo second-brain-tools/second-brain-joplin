@@ -93,7 +93,7 @@ async def test_every_tool_declares_its_side_effects(writes: bool) -> None:
 @pytest.mark.parametrize(
     ("tool_name", "param", "low", "high"),
     [
-        ("joplin_search", "limit", 1, 50),
+        ("joplin_search", "limit", 1, 100),
         ("joplin_semantic_search", "limit", 1, 50),
         ("joplin_recent", "limit", 1, 100),
         ("joplin_recent", "days", 1, 3650),

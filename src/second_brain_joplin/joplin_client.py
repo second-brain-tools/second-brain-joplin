@@ -202,6 +202,7 @@ class JoplinClient:
         max_items: int | None = None,
         keep: ItemTest | None = None,
         stop: ItemTest | None = None,
+        max_pages: int | None = None,
     ) -> list[JsonDict]:
         """Follow Joplin's ``has_more``/``page`` pagination and collect items.
 
@@ -210,7 +211,9 @@ class JoplinClient:
         that many are found or Joplin runs out. That is what lets a filtered
         listing still fill its limit. ``stop`` ends the walk at the first item it
         answers True for (that item is left out), for endpoints ordered so that
-        nothing after it can qualify.
+        nothing after it can qualify. ``max_pages`` ends the walk after that many
+        pages whatever was found, so a filter that drops most items can't make a
+        call page through the whole vault.
         """
         items: list[JsonDict] = []
         base_params = dict(params or {})
@@ -225,7 +228,7 @@ class JoplinClient:
                 items.append(item)
                 if max_items is not None and len(items) >= max_items:
                     return items
-            if not data.get("has_more"):
+            if not data.get("has_more") or (max_pages is not None and page >= max_pages):
                 return items
             page += 1
 
@@ -253,13 +256,16 @@ class JoplinClient:
         data: JsonDict = (await self._get(f"/notes/{note_id}", params)).json()
         return data
 
-    async def search(self, query: str, limit: int, keep: ItemTest | None = None) -> list[JsonDict]:
+    async def search(
+        self, query: str, limit: int, keep: ItemTest | None = None, max_pages: int | None = None
+    ) -> list[JsonDict]:
         """Keyword-search notes, returning the first ``limit`` hits ``keep`` lets through."""
         return await self._get_paginated(
             "/search",
-            {"query": query, "type": "note", "fields": "id,title,body,parent_id"},
+            {"query": query, "type": "note", "fields": "id,title,body,parent_id,updated_time"},
             max_items=limit,
             keep=keep,
+            max_pages=max_pages,
         )
 
     async def get_recent(

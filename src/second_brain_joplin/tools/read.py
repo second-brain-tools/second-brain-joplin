@@ -10,12 +10,13 @@ from pydantic import Field
 from ..context import app_context
 from ..errors import JoplinError, JoplinNotFoundError, NotebookFilterError
 from ..joplin_client import JsonDict
-from ..markdown import SectionError, find_section
+from ..markdown import SectionError, find_section, section_at
 from ..markdown import outline as _outline
 from ..models import (
     MAX_RECENT_DAYS,
     MAX_RECENT_LIMIT,
     MAX_SEARCH_LIMIT,
+    MAX_SEARCH_PAGES,
     READ_DEFAULT_CHARS,
     READ_MAX_CHARS,
     Note,
@@ -25,7 +26,8 @@ from ..models import (
     epoch_ms_to_iso,
     excerpt,
 )
-from ..scope import ID_PATTERN, NotebookScope, scope_of
+from ..scope import ID_PATTERN, UNFILTERED, NotebookScope, scope_of, subtrees
+from ..search import first_match, keywords, matching, notebook_terms, snippet
 from .annotations import READ_ONLY
 from .failure import tool_error
 
@@ -66,6 +68,23 @@ def _build_overview(
     return [build(folder) for folder in shown if folder.get("parent_id", "") not in shown_ids]
 
 
+def _search_result(hit: JsonDict, words: list[str]) -> SearchResult:
+    body: str = hit.get("body", "")
+    at = first_match(body, words)
+    found = section_at(body, at) if at is not None else None
+    updated = hit.get("updated_time")
+    return SearchResult(
+        id=hit["id"],
+        title=hit.get("title", ""),
+        excerpt=excerpt(body),
+        notebook_id=hit.get("parent_id", ""),
+        updated_time=epoch_ms_to_iso(updated) if isinstance(updated, int) else None,
+        snippet=snippet(body, at) if at is not None else None,
+        section=found.path if found else None,
+        section_heading=found.heading if found else None,
+    )
+
+
 def register(mcp: FastMCP) -> None:
     """Register the read tools on the given FastMCP server."""
 
@@ -85,21 +104,60 @@ def register(mcp: FastMCP) -> None:
     async def joplin_search(
         ctx: Context, query: str, limit: SearchLimit = 10
     ) -> list[SearchResult]:
-        """Search notes by keyword."""
+        """Search notes by keyword, with Joplin's search words.
+
+        Each hit has its notebook, when it last changed, a snippet around the
+        first word that matched, and the section that holds it (``section`` is a
+        path ``joplin_read`` accepts). The snippet often answers the question
+        without reading the note.
+
+        Plain words must all match (``any:1 a b``: any of them); ``"a phrase"``;
+        ``word*`` for a prefix; ``-word`` to leave out. Filters, combined with
+        spaces, ``-`` to negate: ``notebook:"Name"`` (with its sub-notebooks),
+        ``tag:name``, ``title:word``, ``body:word``, ``type:todo`` or
+        ``type:note``, ``iscompleted:0`` or ``1``, ``created:20261101`` or
+        ``created:day-7`` (also ``week-``, ``month-``, ``year-``), ``updated:…``,
+        ``due:…``, ``sourceurl:…``, ``resource:image/png``. Examples:
+        ``notebook:"Work" budget``, ``tag:idea -tag:archived``,
+        ``type:todo iscompleted:0``.
+        """
         app = app_context(ctx)
+        terms = notebook_terms(query)
         try:
-            scope = await app.scope()
-            hits = await app.client.search(query, limit, keep=scope.allows_note)
+            if app.settings.notebook_filter_set:
+                folders = await app.client.get_folders()
+                scope = scope_of(app.settings, folders)
+            else:
+                folders, scope = [], UNFILTERED
+            keep = scope.allows_note
+            sent = query
+            if scope.visible is not None and (terms.include or terms.exclude):
+                visible = {f["id"]: f.get("title", "") for f in folders if scope.allows(f["id"])}
+
+                def under(ids: set[str]) -> set[str]:
+                    return {n for n in subtrees(folders, ids) if n in visible}
+
+                allowed = under(matching(terms.include, visible)) if terms.include else None
+                if allowed is not None and not allowed:
+                    return []  # as for a name that matches no notebook at all
+                excluded = under(matching(terms.exclude, visible))
+                sent = terms.query
+                if not sent:
+                    raise ToolError("A search needs words or filters besides -notebook:.")
+
+                def keep(note: JsonDict) -> bool:
+                    parent = note.get("parent_id", "")
+                    return (
+                        scope.allows_note(note)
+                        and (allowed is None or parent in allowed)
+                        and parent not in excluded
+                    )
+
+            hits = await app.client.search(sent, limit, keep=keep, max_pages=MAX_SEARCH_PAGES)
         except (JoplinError, NotebookFilterError) as exc:
             raise tool_error(exc) from exc
-        return [
-            SearchResult(
-                id=hit["id"],
-                title=hit.get("title", ""),
-                excerpt=excerpt(hit.get("body", "")),
-            )
-            for hit in hits
-        ]
+        words = keywords(query)
+        return [_search_result(hit, words) for hit in hits]
 
     @mcp.tool(annotations=READ_ONLY)
     async def joplin_read(

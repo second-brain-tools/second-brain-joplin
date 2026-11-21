@@ -15,7 +15,7 @@ from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinError, NotebookFilterError, SemanticUnavailableError
-from ..models import MAX_SEARCH_LIMIT, ReindexResult, SemanticResult
+from ..models import MAX_SEMANTIC_LIMIT, ReindexResult, SemanticResult
 from .annotations import LOCAL_INDEX_WRITE, READ_ONLY
 from .failure import tool_error
 
@@ -27,7 +27,7 @@ def register(mcp: FastMCP) -> None:
     # first, which changes nothing a client can see except fresher results.
     @mcp.tool(annotations=READ_ONLY)
     async def joplin_semantic_search(
-        ctx: Context, query: str, limit: Annotated[int, Field(ge=1, le=MAX_SEARCH_LIMIT)] = 10
+        ctx: Context, query: str, limit: Annotated[int, Field(ge=1, le=MAX_SEMANTIC_LIMIT)] = 10
     ) -> list[SemanticResult]:
         """Find notes by meaning (semantic similarity), not just keywords."""
         try:
