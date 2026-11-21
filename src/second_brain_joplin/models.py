@@ -21,6 +21,9 @@ MAX_RECENT_LIMIT = 100
 MAX_RECENT_DAYS = 3650
 READ_DEFAULT_CHARS = 50_000
 READ_MAX_CHARS = 100_000
+# joplin_read_notes: at most this many notes, sharing this many characters of text.
+READ_NOTES_MAX = 20
+READ_NOTES_BUDGET = 40_000
 # Bounds on a note the write tool may create: one page of joplin_read holds it.
 MAX_TITLE_CHARS = 300
 MAX_NOTE_CHARS = 100_000
@@ -37,6 +40,15 @@ def excerpt(body: str) -> str:
     if len(text) <= EXCERPT_LENGTH:
         return text
     return text[:EXCERPT_LENGTH].rstrip() + "…"
+
+
+class Attachment(BaseModel):
+    """A file attached to a note (a Joplin resource): what it is, not its content."""
+
+    id: str
+    title: str
+    mime: str
+    size: int
 
 
 class Note(BaseModel):
@@ -60,6 +72,26 @@ class Note(BaseModel):
     section_path: str | None = None
     section_heading: str | None = None
     is_outline: bool = False
+    notebook: str | None = None
+    notebook_path: list[str] = []
+    tags: list[str] = []
+    is_todo: bool = False
+    todo_due: str | None = None
+    todo_completed: str | None = None
+    attachments: list[Attachment] = []
+    body_sha256: str = ""
+
+
+class NotesRead(BaseModel):
+    """Several notes read in one call, sharing one budget of characters.
+
+    A note cut short by the budget has ``next_offset`` set: read the rest with
+    ``joplin_read``. ``not_found`` lists the ids that are missing or hidden, alike.
+    """
+
+    notes: list[Note]
+    not_found: list[str]
+    budget: int
 
 
 class RecentNote(BaseModel):

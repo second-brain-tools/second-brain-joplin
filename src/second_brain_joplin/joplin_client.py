@@ -252,9 +252,28 @@ class JoplinClient:
 
     async def get_note(self, note_id: str) -> JsonDict:
         """Return a single note including its full markdown body."""
-        params = {"fields": "id,title,body,parent_id,created_time,updated_time,encryption_applied"}
+        params = {
+            "fields": "id,title,body,parent_id,created_time,updated_time,encryption_applied,"
+            "is_todo,todo_due,todo_completed"
+        }
         data: JsonDict = (await self._get(f"/notes/{note_id}", params)).json()
         return data
+
+    async def get_note_tags(self, note_id: str) -> list[JsonDict]:
+        """The tags on one note (id and title)."""
+        return await self._get_paginated(f"/notes/{note_id}/tags", {"fields": "id,title"})
+
+    async def get_note_resources(self, note_id: str) -> list[JsonDict]:
+        """The attachments (resources) one note refers to, without their content."""
+        return await self._get_paginated(
+            f"/notes/{note_id}/resources", {"fields": "id,title,mime,size"}
+        )
+
+    async def get_resource_notes(self, resource_id: str) -> list[JsonDict]:
+        """Every note that refers to an attachment, with its notebook."""
+        return await self._get_paginated(
+            f"/resources/{resource_id}/notes", {"fields": "id,parent_id"}
+        )
 
     async def search(
         self, query: str, limit: int, keep: ItemTest | None = None, max_pages: int | None = None

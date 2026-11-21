@@ -38,6 +38,16 @@ ANY_NOTEBOOK = "*"
 # id can never smuggle a path or a query into a request to Joplin.
 ID_PATTERN = r"^[0-9a-fA-F]{32}$"
 ID_RE = re.compile(ID_PATTERN)
+# A note's id as it arrives: the id, a link from one note to another (`:/<id>`), or
+# the external link Joplin copies (`joplin://x-callback-url/openNote?id=<id>`).
+NOTE_REF_PATTERN = (
+    r"^(?:[0-9a-fA-F]{32}|:/[0-9a-fA-F]{32}|joplin://x-callback-url/openNote\?id=[0-9a-fA-F]{32})$"
+)
+
+
+def note_id_of(ref: str) -> str:
+    """The 32-character id in a reference that matched :data:`NOTE_REF_PATTERN`."""
+    return ref[-32:].lower()
 
 
 @dataclass(frozen=True)

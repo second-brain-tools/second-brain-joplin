@@ -179,6 +179,9 @@ async def test_a_failure_of_ours_is_logged_by_its_own_name(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     missing = "f" * 32
+    respx.get(f"{BASE_URL}/folders").mock(
+        return_value=httpx.Response(200, json={"items": [], "has_more": False})
+    )
     respx.get(f"{BASE_URL}/notes/{missing}").mock(return_value=httpx.Response(404))
     respx.get(f"{BASE_URL}/search").mock(side_effect=httpx.ReadTimeout("slow"))
     respx.get(f"{BASE_URL}/ping").mock(side_effect=httpx.ReadTimeout("slow"))

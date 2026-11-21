@@ -203,8 +203,10 @@ What a filter changes:
   search's `notebook:` and `-notebook:` words match visible notebooks only, so a
   hidden notebook answers exactly as one that doesn't exist, even when a
   sub-notebook of it is visible.
-- **`joplin_read`** answers for a hidden note exactly as it does for a note that
-  doesn't exist.
+- **`joplin_read` and `joplin_read_notes`** answer for a hidden note exactly as
+  for a note that doesn't exist. A note's notebook path starts at the topmost
+  visible notebook, so a hidden parent's name isn't shown, and an attachment that
+  a hidden note also uses is left out of a visible note's list.
 - **Semantic search** never indexes a hidden note, and drops one that becomes
   hidden (it moved, its notebook moved, or you changed the filter) at the next
   sync. What a search returns doesn't rest on that, though: every search asks

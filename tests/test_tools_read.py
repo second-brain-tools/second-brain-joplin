@@ -101,6 +101,7 @@ async def test_search_empty_returns_empty_list() -> None:
 
 @respx.mock
 async def test_read_converts_timestamps() -> None:
+    _mock_note_extras()
     respx.get(f"{BASE_URL}/notes/{ABC}").mock(
         return_value=httpx.Response(
             200,
@@ -125,6 +126,7 @@ async def test_read_converts_timestamps() -> None:
 
 @respx.mock
 async def test_read_missing_note_raises_tool_error() -> None:
+    _mock_note_extras()
     respx.get(f"{BASE_URL}/notes/{MISSING}").mock(return_value=httpx.Response(404))
     async with Client(mcp) as client:
         with pytest.raises(ToolError, match="was not found"):
@@ -160,7 +162,17 @@ async def test_tool_surfaces_connection_error() -> None:
             await client.call_tool("joplin_overview", {})
 
 
+def _mock_note_extras() -> None:
+    """What joplin_read asks for besides the note: notebooks, tags, attachments."""
+    empty = httpx.Response(200, json={"items": [], "has_more": False})
+    respx.get(f"{BASE_URL}/folders").mock(return_value=empty)
+    respx.get(url__regex=rf"{BASE_URL}/notes/[0-9a-f]{{32}}/(tags|resources)").mock(
+        return_value=empty
+    )
+
+
 def _mock_note(body: str) -> None:
+    _mock_note_extras()
     respx.get(f"{BASE_URL}/notes/{LONG}").mock(
         return_value=httpx.Response(
             200,
@@ -350,13 +362,13 @@ async def test_a_hidden_note_answers_like_a_missing_one_whatever_the_section(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("SBJ_EXCLUDE_NOTEBOOKS", "Root")
+    _mock_note(SECTIONED)
     respx.get(f"{BASE_URL}/folders").mock(
         return_value=httpx.Response(
             200,
             json={"items": [{"id": "root", "title": "Root", "parent_id": ""}], "has_more": False},
         )
     )
-    _mock_note(SECTIONED)
     from second_brain_joplin.server import create_server
 
     async with Client(create_server()) as client:

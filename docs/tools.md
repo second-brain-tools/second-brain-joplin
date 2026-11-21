@@ -134,7 +134,7 @@ comes a page at a time.
 
 | Argument | Type | Default | Allowed |
 |---|---|---|---|
-| `note_id` | string | required | A note's id: 32 hexadecimal characters |
+| `note_id` | string | required | A note's id (32 hexadecimal characters), or a link to it: `:/<id>` as one note links another, or `joplin://x-callback-url/openNote?id=<id>` as Joplin copies it |
 | `offset` | integer | `0` | 0 or more: the character to start from |
 | `max_chars` | integer | `50000` | 1 to 100,000: the most characters to return |
 | `outline` | boolean | `false` | `true`: the note's headings instead of its text |
@@ -158,6 +158,14 @@ Returns:
 | `section_path` | string or null | The section read, by its path; null when it wasn't one section |
 | `section_heading` | string or null | That section's heading |
 | `is_outline` | boolean | `true` when `body` is the outline |
+| `notebook` | string or null | The name of the notebook it is in |
+| `notebook_path` | list of strings | The notebooks above it and its own, from the topmost visible one down |
+| `tags` | list of strings | Its tags' names |
+| `is_todo` | boolean | Whether it is a to-do |
+| `todo_due` | string or null | A to-do's due time; null when it has none |
+| `todo_completed` | string or null | When a to-do was ticked done; null while open |
+| `attachments` | list | Its attachments: `id`, `title`, `mime` and `size` in bytes; never their content |
+| `body_sha256` | string | The SHA-256 of the note's whole text, whatever page or section was read |
 
 ```json
 {
@@ -207,6 +215,31 @@ What counts as a heading and a section:
 
 A note that doesn't exist, and a note the notebook filter hides, get the same
 answer: `The requested Joplin resource was not found.`
+
+`body_sha256` names the version of the text that was read. The tools that change
+a note ask for it back, so a note changed since it was read is never overwritten
+unseen.
+
+## `joplin_read_notes`
+
+Reads several notes in one call, for example the results of a search, each as
+`joplin_read` gives it. Their texts share one budget of 40,000 characters:
+short notes come whole, and what is left is split evenly over the longer ones.
+
+| Argument | Type | Default | Allowed |
+|---|---|---|---|
+| `note_ids` | list of strings | required | 1 to 20 note ids, in any of the forms `joplin_read` takes |
+
+Returns:
+
+| Field | Type | |
+|---|---|---|
+| `notes` | list | One `joplin_read` result for each note found, in the order asked, each id once |
+| `not_found` | list of strings | The ids that are missing, or hidden by the notebook filter, alike |
+| `budget` | integer | The characters the bodies shared |
+
+A note cut short has `next_offset` set; read the rest, or one section of it,
+with `joplin_read`. `total_chars` is the length of the whole note.
 
 ## `joplin_recent`
 
@@ -379,7 +412,7 @@ which notebooks every tool can see:
 | `joplin_overview` | Lists visible notebooks only. A visible notebook under a hidden one moves to the top of the tree |
 | `joplin_search` | Leaves hidden notes out, and keeps reading until `limit` is filled or 20 pages are read. `notebook:` and `-notebook:` match visible notebooks only: a hidden notebook answers like one that doesn't exist, even when its sub-notebook is visible |
 | `joplin_recent` | Leaves hidden notes out, and keeps reading until `limit` is filled |
-| `joplin_read` | Answers for a hidden note exactly as for one that doesn't exist |
+| `joplin_read`, `joplin_read_notes` | Answer for a hidden note exactly as for one that doesn't exist. `notebook_path` starts at the topmost visible notebook, so a hidden parent's name never appears. An attachment that a hidden note also uses is left out, as if it didn't exist |
 | `joplin_semantic_search` | Returns only notes that are visible at that moment |
 | `joplin_reindex` | Indexes visible notes only, and drops notes that became hidden |
 | `joplin_create_note` | Can't write to a hidden notebook, whatever `SBJ_WRITE_NOTEBOOKS` lists |

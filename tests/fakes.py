@@ -140,6 +140,9 @@ class FakeJoplin:
         self.notes: dict[str, dict[str, Any]] = {}
         self.requests: list[str] = []  # the path of every request, in order
         self.queries: list[str] = []  # the query of every /search request
+        self.note_tags: dict[str, list[str]] = {}  # note id -> tag titles
+        self.resources: dict[str, dict[str, Any]] = {}  # resource id -> {title, mime, size}
+        self.note_resources: dict[str, list[str]] = {}  # note id -> resource ids
         self.pings = 0  # requests to /ping, kept apart from `requests`
         self.down = False
         # Accept connections and answer nothing: every request times out.
@@ -208,8 +211,49 @@ class FakeJoplin:
         respx.get(f"{self.base_url}/notes").mock(side_effect=self._notes)
         respx.get(f"{self.base_url}/search").mock(side_effect=self._search)
         respx.post(f"{self.base_url}/notes").mock(side_effect=self._create)
-        respx.get(url__regex=rf"{base}/notes/[^/?]+").mock(side_effect=self._note)
+        respx.get(url__regex=rf"{base}/notes/[^/?]+/tags").mock(side_effect=self._tags_of)
+        respx.get(url__regex=rf"{base}/notes/[^/?]+/resources").mock(side_effect=self._resources_of)
+        respx.get(url__regex=rf"{base}/resources/[^/?]+/notes").mock(side_effect=self._users_of)
+        respx.get(url__regex=rf"{base}/notes/[^/?]+(?:\?|$)").mock(side_effect=self._note)
         respx.get(f"{self.base_url}/ping").mock(side_effect=self._ping)
+
+    def attach(self, note_id: str, title: str = "photo.jpg", mime: str = "image/jpeg") -> str:
+        """Give a note an attachment it refers to; return the attachment's id."""
+        resource_id = self._new_id()
+        self.resources[resource_id] = {
+            "id": resource_id,
+            "title": title,
+            "mime": mime,
+            "size": 1234,
+        }
+        self.refer(note_id, resource_id)
+        return resource_id
+
+    def refer(self, note_id: str, resource_id: str) -> None:
+        """Make a note refer to an existing attachment."""
+        self.note_resources.setdefault(note_id, []).append(resource_id)
+
+    def _tags_of(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request.url.path)
+        note_id = request.url.path.split("/")[-2]
+        rows = [{"id": f"tag-{t}", "title": t} for t in self.note_tags.get(note_id, [])]
+        return self._page(request, rows, record=False)
+
+    def _resources_of(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request.url.path)
+        note_id = request.url.path.split("/")[-2]
+        rows = [self.resources[r] for r in self.note_resources.get(note_id, [])]
+        return self._page(request, rows, record=False)
+
+    def _users_of(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request.url.path)
+        resource_id = request.url.path.split("/")[-2]
+        rows = [
+            {"id": n, "parent_id": self.notes[n]["parent_id"]}
+            for n, refs in self.note_resources.items()
+            if resource_id in refs and n in self.notes
+        ]
+        return self._page(request, rows, record=False)
 
     def _ping(self, _request: httpx.Request) -> httpx.Response:
         self.pings += 1
@@ -219,8 +263,11 @@ class FakeJoplin:
             raise httpx.ReadTimeout("no answer")
         return httpx.Response(200, text="JoplinClipperServer")
 
-    def _page(self, request: httpx.Request, rows: list[dict[str, Any]]) -> httpx.Response:
-        self.requests.append(request.url.path)
+    def _page(
+        self, request: httpx.Request, rows: list[dict[str, Any]], *, record: bool = True
+    ) -> httpx.Response:
+        if record:
+            self.requests.append(request.url.path)
         if self.down:
             raise httpx.ConnectError("Joplin is down")
         if self.hung:

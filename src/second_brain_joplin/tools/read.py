@@ -1,7 +1,8 @@
 """Read-only MCP tools backed by the Joplin Data API."""
 
+import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -9,7 +10,7 @@ from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinError, JoplinNotFoundError, NotebookFilterError
-from ..joplin_client import JsonDict
+from ..joplin_client import JoplinClient, JsonDict
 from ..markdown import SectionError, find_section, section_at
 from ..markdown import outline as _outline
 from ..models import (
@@ -19,20 +20,40 @@ from ..models import (
     MAX_SEARCH_PAGES,
     READ_DEFAULT_CHARS,
     READ_MAX_CHARS,
+    READ_NOTES_BUDGET,
+    READ_NOTES_MAX,
+    Attachment,
     Note,
     Notebook,
+    NotesRead,
     RecentNote,
     SearchResult,
     epoch_ms_to_iso,
     excerpt,
 )
-from ..scope import ID_PATTERN, UNFILTERED, NotebookScope, scope_of, subtrees
+from ..scope import (
+    NOTE_REF_PATTERN,
+    UNFILTERED,
+    NotebookScope,
+    note_id_of,
+    scope_of,
+    subtrees,
+)
 from ..search import first_match, keywords, matching, notebook_terms, snippet
 from .annotations import READ_ONLY
 from .failure import tool_error
 
 SearchLimit = Annotated[int, Field(ge=1, le=MAX_SEARCH_LIMIT)]
-NoteId = Annotated[str, Field(pattern=ID_PATTERN, description="A note's 32-character id.")]
+NoteId = Annotated[
+    str,
+    Field(
+        pattern=NOTE_REF_PATTERN,
+        description=(
+            "A note's 32-character id; a link to it (':/<id>' or "
+            "'joplin://x-callback-url/openNote?id=<id>') works too."
+        ),
+    ),
+]
 
 
 def _build_overview(
@@ -66,6 +87,77 @@ def _build_overview(
         )
 
     return [build(folder) for folder in shown if folder.get("parent_id", "") not in shown_ids]
+
+
+def share_budget(lengths: list[int], budget: int) -> list[int]:
+    """How many characters each text gets of ``budget``: the short ones in full,
+    the rest split evenly over the longer ones."""
+    shares = [0] * len(lengths)
+    left = budget
+    order = sorted(range(len(lengths)), key=lambda i: lengths[i])
+    for position, index in enumerate(order):
+        fair = left // (len(order) - position)
+        shares[index] = min(lengths[index], fair)
+        left -= shares[index]
+    return shares
+
+
+def _time_or_none(value: object) -> str | None:
+    return epoch_ms_to_iso(value) if isinstance(value, int) and value > 0 else None
+
+
+def notebook_path(folders: list[JsonDict], scope: NotebookScope, notebook_id: str) -> list[str]:
+    """Names from the topmost *visible* notebook down to ``notebook_id``.
+
+    The walk up stops at a hidden notebook, so a hidden parent's name never appears.
+    """
+    by_id = {f["id"]: f for f in folders}
+    path: list[str] = []
+    seen: set[str] = set()
+    current = notebook_id
+    while current and current in by_id and current not in seen and scope.allows(current):
+        seen.add(current)
+        path.append(by_id[current].get("title", ""))
+        current = by_id[current].get("parent_id", "")
+    return list(reversed(path))
+
+
+async def _details(
+    client: JoplinClient, scope: NotebookScope, folders: list[JsonDict], note: JsonDict
+) -> dict[str, Any]:
+    """The facts about a visible note beyond its text: notebook, tags, to-do, attachments.
+
+    Tags are one list for the whole vault, so they are given only as properties of
+    this note. An attachment can be referred to by any note, including one a caller
+    wrote itself, so with a filter set it is listed only when no hidden note refers
+    to it: otherwise it is left out, as if it didn't exist.
+    """
+    path = notebook_path(folders, scope, note.get("parent_id", ""))
+    tags = sorted(t.get("title", "") for t in await client.get_note_tags(note["id"]))
+    attachments = []
+    for resource in await client.get_note_resources(note["id"]):
+        if scope.visible is not None:
+            users = await client.get_resource_notes(resource["id"])
+            if not all(scope.allows_note(user) for user in users):
+                continue
+        attachments.append(
+            Attachment(
+                id=resource["id"],
+                title=resource.get("title", ""),
+                mime=resource.get("mime", ""),
+                size=int(resource.get("size", 0) or 0),
+            )
+        )
+    return {
+        "notebook": path[-1] if path else None,
+        "notebook_path": path,
+        "tags": tags,
+        "is_todo": bool(note.get("is_todo")),
+        "todo_due": _time_or_none(note.get("todo_due")),
+        "todo_completed": _time_or_none(note.get("todo_completed")),
+        "attachments": attachments,
+        "body_sha256": hashlib.sha256(note.get("body", "").encode()).hexdigest(),
+    }
 
 
 def _search_result(hit: JsonDict, words: list[str]) -> SearchResult:
@@ -198,11 +290,13 @@ def register(mcp: FastMCP) -> None:
             raise ToolError("Ask for the outline or for one section, not both.")
         app = app_context(ctx)
         try:
-            scope = await app.scope()
-            note = await app.client.get_note(note_id)
+            folders = await app.client.get_folders()
+            scope = scope_of(app.settings, folders)
+            note = await app.client.get_note(note_id_of(note_id))
             if not scope.allows_note(note):
                 # The same answer as a note that doesn't exist.
                 raise JoplinNotFoundError()
+            details = await _details(app.client, scope, folders, note)
         except (JoplinError, NotebookFilterError) as exc:
             raise tool_error(exc) from exc
         body: str = note.get("body", "")
@@ -232,7 +326,67 @@ def register(mcp: FastMCP) -> None:
             section_path=section_path,
             section_heading=section_heading,
             is_outline=outline,
+            **details,
         )
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def joplin_read_notes(
+        ctx: Context,
+        note_ids: Annotated[
+            list[NoteId],
+            Field(
+                min_length=1,
+                max_length=READ_NOTES_MAX,
+                description=f"Up to {READ_NOTES_MAX} note ids (or links to notes).",
+            ),
+        ],
+    ) -> NotesRead:
+        """Read several notes in one call, for example the results of a search.
+
+        Each note comes as ``joplin_read`` gives it. Their texts share one budget
+        of characters: short notes take what they need, and the rest is split
+        over the longer ones. A note cut short has ``next_offset`` set: read the
+        rest, or one section of it, with ``joplin_read``. Ids that don't resolve
+        are listed in ``not_found``.
+        """
+        app = app_context(ctx)
+        wanted = list(dict.fromkeys(note_id_of(ref) for ref in note_ids))
+        found: list[tuple[JsonDict, dict[str, Any]]] = []
+        not_found: list[str] = []
+        try:
+            folders = await app.client.get_folders()
+            scope = scope_of(app.settings, folders)
+            for wanted_id in wanted:
+                try:
+                    note = await app.client.get_note(wanted_id)
+                except JoplinNotFoundError:
+                    not_found.append(wanted_id)
+                    continue
+                if not scope.allows_note(note):
+                    not_found.append(wanted_id)  # the same answer as a missing note
+                    continue
+                found.append((note, await _details(app.client, scope, folders, note)))
+        except (JoplinError, NotebookFilterError) as exc:
+            raise tool_error(exc) from exc
+        shares = share_budget([len(n.get("body", "")) for n, _ in found], READ_NOTES_BUDGET)
+        notes = []
+        for (note, details), take in zip(found, shares, strict=True):
+            body = note.get("body", "")
+            notes.append(
+                Note(
+                    id=note["id"],
+                    title=note.get("title", ""),
+                    body=body[:take],
+                    parent_id=note.get("parent_id", ""),
+                    created_time=epoch_ms_to_iso(note["created_time"]),
+                    updated_time=epoch_ms_to_iso(note["updated_time"]),
+                    offset=0,
+                    total_chars=len(body),
+                    next_offset=take if take < len(body) else None,
+                    **details,
+                )
+            )
+        return NotesRead(notes=notes, not_found=not_found, budget=READ_NOTES_BUDGET)
 
     @mcp.tool(annotations=READ_ONLY)
     async def joplin_recent(

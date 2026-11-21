@@ -50,6 +50,7 @@ READ_TOOLS = {
     "joplin_overview",
     "joplin_search",
     "joplin_read",
+    "joplin_read_notes",
     "joplin_recent",
     "joplin_semantic_search",
     "joplin_reindex",
@@ -139,7 +140,11 @@ async def check_stdio(server: Server, joplin_down: dict[str, str]) -> None:
             f"{info.name if info else None}, MCP {client.protocol_version}",
         )
         names = await tool_names(client)
-        check(names == READ_TOOLS, "stdio: exactly the six read-only tools", f"{len(names)} listed")
+        check(
+            names == READ_TOOLS,
+            f"stdio: exactly the {len(READ_TOOLS)} read-only tools",
+            f"{len(names)} listed",
+        )
         result = await client.call_tool("joplin_overview", raise_on_error=False)
         message = text_of(result)
         check(
@@ -234,7 +239,10 @@ async def check_http(server: Server, joplin_down: dict[str, str]) -> None:
             str(health),
         )
         async with Client(f"{address}/mcp", init_timeout=30) as client:
-            check(await tool_names(client) == READ_TOOLS, "http: MCP lists the same six tools")
+            check(
+                await tool_names(client) == READ_TOOLS,
+                f"http: MCP lists the same {len(READ_TOOLS)} tools",
+            )
 
     # HTTP is how a Claude connector reaches the server, so the mark is checked here too.
     writes = {**joplin_down, "SBJ_WRITE_NOTEBOOKS": "Inbox"}

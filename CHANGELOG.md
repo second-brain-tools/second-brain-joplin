@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`joplin_read` says more about a note, and `joplin_read_notes` reads up to
+  20 at once** (#85). A read now returns the note's `notebook` and
+  `notebook_path` (from the topmost visible notebook down), its `tags`, the
+  to-do fields (`is_todo`, `todo_due`, `todo_completed`), its `attachments`
+  (name, type and size, never the content) and `body_sha256`, the checksum of
+  the whole text that the tools changing a note will ask for. It accepts a link
+  as well as an id (`:/<id>`, or `joplin://x-callback-url/openNote?id=<id>`).
+  `joplin_read_notes` takes up to 20 ids; their texts share 40,000 characters,
+  short notes whole and the rest split over the long ones, and missing or
+  hidden ids are listed alike in `not_found`. With a notebook filter, an
+  attachment that a hidden note also uses is left out.
 - **Search results say where the match is** (#97). Each `joplin_search` hit
   gains `notebook_id`, `updated_time`, a `snippet` around the first word of the
   query found in the text, and the `section` and `section_heading` that hold
