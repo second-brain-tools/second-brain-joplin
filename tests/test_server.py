@@ -11,6 +11,8 @@ EXPECTED_TOOLS = {
     "joplin_overview",
     "joplin_search",
     "joplin_read",
+    "joplin_read_notes",
+    "joplin_list_notes",
     "joplin_recent",
     "joplin_semantic_search",
     "joplin_reindex",
@@ -21,6 +23,8 @@ REQUIRED_PARAMS = {
     "joplin_overview": set(),
     "joplin_search": {"query"},
     "joplin_read": {"note_id"},
+    "joplin_read_notes": {"note_ids"},
+    "joplin_list_notes": {"notebook"},
     "joplin_recent": set(),
     "joplin_semantic_search": {"query"},
     "joplin_reindex": set(),
@@ -93,7 +97,7 @@ async def test_every_tool_declares_its_side_effects(writes: bool) -> None:
 @pytest.mark.parametrize(
     ("tool_name", "param", "low", "high"),
     [
-        ("joplin_search", "limit", 1, 50),
+        ("joplin_search", "limit", 1, 100),
         ("joplin_semantic_search", "limit", 1, 50),
         ("joplin_recent", "limit", 1, 100),
         ("joplin_recent", "days", 1, 3650),
@@ -119,3 +123,23 @@ async def test_lifespan_yields_app_context_and_closes(monkeypatch: pytest.Monkey
         assert isinstance(app_ctx, AppContext)
         assert isinstance(app_ctx.client, JoplinClient)
     assert closed.get("ran") is True
+
+
+# Tools that change an existing note (SBJ_EDIT_NOTEBOOKS): destructive, not idempotent.
+NOTE_CHANGERS = {"joplin_edit_note": "changes part of a note"}
+
+
+async def test_with_the_edit_list_every_tool_still_declares_its_side_effects() -> None:
+    async with Client(create_server(writes=True, edits=True)) as client:
+        tools = await client.list_tools()
+    names = {tool.name for tool in tools}
+    assert names == EXPECTED_TOOLS | set(JOPLIN_WRITERS) | set(NOTE_CHANGERS) | {"joplin_changes"}
+    for tool in tools:
+        hints = tool.annotations
+        assert hints is not None and hints.open_world_hint is False, tool.name
+        if tool.name in NOTE_CHANGERS:
+            assert hints.read_only_hint is False, tool.name
+            assert hints.destructive_hint is True, tool.name
+            assert hints.idempotent_hint is False, tool.name
+        elif tool.name == "joplin_changes":
+            assert hints.read_only_hint is True, tool.name

@@ -9,7 +9,8 @@ a friendly :class:`SemanticUnavailableError`.
 Coverage-omitted (see ``[tool.coverage.run] omit`` in ``pyproject.toml``): it can
 only run with the optional libs installed, which CI does not do. It is still
 type-checked by mypy (the optional libs resolve to ``Any`` via
-``ignore_missing_imports``), and exercised by the opt-in integration suite.
+``ignore_missing_imports``). The two vector stores are exercised by
+``tests/test_semantic_backends.py`` (sqlite-vec in CI; Chroma when installed).
 """
 
 from __future__ import annotations
@@ -21,6 +22,13 @@ from typing import Any, cast
 from ..config import Settings
 from ..errors import SemanticUnavailableError
 from .types import ChunkRecord, Embedder, QueryHit, VectorIndex
+
+NO_EXTENSIONS_HINT = (
+    "The sqlite-vec index needs a Python that can load SQLite extensions, and this "
+    "one can't (some macOS and pyenv builds leave it out). Run the server on uv's own "
+    "Python (`uv python install 3.13`, then `uvx --python 3.13 ...`), or set "
+    "SBJ_VECTOR_STORE=chroma with the [semantic-chroma] extra."
+)
 
 _FASTEMBED_DEFAULT = "BAAI/bge-small-en-v1.5"
 _ST_DEFAULT = "BAAI/bge-m3"
@@ -108,6 +116,10 @@ class _SqliteVecIndex:
         except ImportError as exc:  # pragma: no cover - env-dependent
             raise SemanticUnavailableError(_install_hint("sqlite-vec")) from exc
         self._target_model = model_name
+        if not hasattr(sqlite3.Connection, "enable_load_extension"):
+            # Some Python builds (macOS's framework Python, some pyenv builds) leave out
+            # SQLite's extension loading, which sqlite-vec needs.
+            raise SemanticUnavailableError(NO_EXTENSIONS_HINT)
         self._conn = sqlite3.connect(str(Path(index_dir) / "index.db"), check_same_thread=False)
         self._conn.enable_load_extension(True)
         sqlite_vec.load(self._conn)
@@ -118,6 +130,11 @@ class _SqliteVecIndex:
             "CREATE TABLE IF NOT EXISTS chunks("
             "rowid INTEGER PRIMARY KEY, chunk_id TEXT UNIQUE, note_id TEXT, "
             "updated_time TEXT, title TEXT, chunk_index INTEGER, text TEXT)"
+        )
+        # Notes with no text: an id and a version, nothing else. An index made
+        # before this table existed gains it here; older versions ignore it.
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS empty_notes(note_id TEXT PRIMARY KEY, updated_time TEXT)"
         )
         self._conn.commit()
 
@@ -143,10 +160,27 @@ class _SqliteVecIndex:
         rows = self._conn.execute("SELECT note_id, updated_time FROM chunks").fetchall()
         return {note_id: updated for note_id, updated in rows}
 
+    def empty_versions(self) -> dict[str, str]:
+        rows = self._conn.execute("SELECT note_id, updated_time FROM empty_notes").fetchall()
+        return {note_id: updated for note_id, updated in rows}
+
+    def mark_empty(self, note_id: str, version: str) -> None:
+        self._conn.execute(
+            "INSERT INTO empty_notes(note_id, updated_time) VALUES(?, ?) "
+            "ON CONFLICT(note_id) DO UPDATE SET updated_time = excluded.updated_time",
+            (note_id, version),
+        )
+        self._conn.commit()
+
     def upsert(self, records: list[ChunkRecord]) -> None:
         if not records:
             return
         self._ensure_vec_table(len(records[0].embedding))
+        note_ids = sorted({record.note_id for record in records})
+        self._conn.execute(
+            f"DELETE FROM empty_notes WHERE note_id IN ({', '.join('?' for _ in note_ids)})",
+            note_ids,
+        )
         for record in records:
             cursor = self._conn.execute(
                 "INSERT INTO chunks(chunk_id, note_id, updated_time, title, chunk_index, text) "
@@ -175,6 +209,7 @@ class _SqliteVecIndex:
         ).fetchall()
         rowids = [r[0] for r in rows]
         self._conn.execute(f"DELETE FROM chunks WHERE note_id IN ({placeholders})", note_ids)
+        self._conn.execute(f"DELETE FROM empty_notes WHERE note_id IN ({placeholders})", note_ids)
         if rowids and self._vec_table_ready():
             vec_placeholders = ", ".join("?" for _ in rowids)
             self._conn.execute(
@@ -205,6 +240,7 @@ class _SqliteVecIndex:
     def reset(self, model_name: str) -> None:
         self._conn.execute("DROP TABLE IF EXISTS vec_chunks")
         self._conn.execute("DELETE FROM chunks")
+        self._conn.execute("DELETE FROM empty_notes")
         self._conn.execute(
             "INSERT INTO meta(key, value) VALUES('model', ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -217,6 +253,11 @@ class _ChromaVectorIndex:
     """Persistent Chroma collection keyed by chunk id."""
 
     _COLLECTION = "notes"
+    # Notes with no text. Chroma needs a vector on every record, so each mark
+    # carries a one-number placeholder; it lives in its own collection, which no
+    # search ever reads.
+    _EMPTY_COLLECTION = "empty_notes"
+    _PLACEHOLDER = [1.0]
 
     def __init__(self, index_dir: str, model_name: str) -> None:
         try:
@@ -230,6 +271,7 @@ class _ChromaVectorIndex:
         self._collection = self._client.get_or_create_collection(
             self._COLLECTION, metadata={"model": model_name}
         )
+        self._empty = self._client.get_or_create_collection(self._EMPTY_COLLECTION)
 
     @property
     def model_name(self) -> str:
@@ -243,9 +285,24 @@ class _ChromaVectorIndex:
             versions[str(metadata["note_id"])] = str(metadata["updated_time"])
         return versions
 
+    def empty_versions(self) -> dict[str, str]:
+        data = self._empty.get(include=["metadatas"])
+        ids = data.get("ids") or []
+        metadatas = data.get("metadatas") or []
+        return {
+            str(note_id): str(metadata["updated_time"])
+            for note_id, metadata in zip(ids, metadatas, strict=True)
+        }
+
+    def mark_empty(self, note_id: str, version: str) -> None:
+        self._empty.upsert(
+            ids=[note_id], embeddings=[self._PLACEHOLDER], metadatas=[{"updated_time": version}]
+        )
+
     def upsert(self, records: list[ChunkRecord]) -> None:
         if not records:
             return
+        self._empty.delete(ids=sorted({r.note_id for r in records}))
         self._collection.upsert(
             ids=[r.chunk_id for r in records],
             embeddings=[r.embedding for r in records],
@@ -265,6 +322,7 @@ class _ChromaVectorIndex:
         if not note_ids:
             return
         self._collection.delete(where={"note_id": {"$in": note_ids}})
+        self._empty.delete(ids=note_ids)
 
     def query(self, embedding: list[float], k: int) -> list[QueryHit]:
         result: dict[str, Any] = self._collection.query(
@@ -289,10 +347,12 @@ class _ChromaVectorIndex:
         return hits
 
     def reset(self, model_name: str) -> None:
-        try:
-            self._client.delete_collection(self._COLLECTION)
-        except Exception:  # noqa: BLE001 - collection may not exist yet
-            pass
+        for name in (self._COLLECTION, self._EMPTY_COLLECTION):
+            try:
+                self._client.delete_collection(name)
+            except Exception:  # noqa: BLE001 - collection may not exist yet
+                pass
         self._collection = self._client.get_or_create_collection(
             self._COLLECTION, metadata={"model": model_name}
         )
+        self._empty = self._client.get_or_create_collection(self._EMPTY_COLLECTION)

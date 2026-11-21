@@ -45,7 +45,10 @@ Things to know:
 - **Lists are comma-separated,** and spaces around an entry are ignored. A
   notebook whose title contains a comma has to be named by its id.
 - **True or false:** `1`, `true`, `yes` and `on` mean true, in any letter case.
-  Anything else means false. `SBJ_ASK_EVERY_TIME` is stricter, because it
+  Anything else means false, except for `SBJ_REPLACE` and
+  `SBJ_ASK_EVERY_TIME`. `SBJ_REPLACE` takes only a plain yes or no (`0`,
+  `false`, `no`, `off`); it is off when unset or empty, and any other value
+  stops the server from starting. `SBJ_ASK_EVERY_TIME` is stricter still, because it
   switches a protection: only `0`, `false`, `no` or `off` turns it off, an empty
   value counts as unset, and any other value stops the server from starting. To
   force it on over an env file that says `false`, set it to `true` in the
@@ -73,9 +76,24 @@ Things to know:
 |---|---|---|
 | `JOPLIN_API_TOKEN` | none | **Required.** The token from Joplin Desktop: **Tools → Options → Web Clipper** (on macOS, **Joplin → Settings → Web Clipper**). Without it the server still starts, and a tool that asks Joplin for anything answers that Joplin rejected the request |
 | `JOPLIN_BASE_URL` | `http://localhost:41184` | Where Joplin's Web Clipper service listens. Change it only if you changed the port in Joplin |
+| `SBJ_JOPLIN_TIMEOUT` | `10` | Seconds Joplin has to answer a request. Raise it if a large search on a slow machine runs out of time |
+| `SBJ_JOPLIN_CONNECT_TIMEOUT` | `3` | Seconds to open the connection to Joplin. It is on the same machine, so this takes milliseconds when Joplin is there |
 
-The server gives Joplin ten seconds to answer each request. Joplin's API takes
-the token in the address of each request, which is why Joplin should only ever
+Both timeouts take a number of seconds above 0 (`2.5` works). Empty is the
+default; anything else (`0`, `-1`, `ten`) stops `serve`, `reindex`,
+`notebooks` and `restore` from starting, with a message naming the variable.
+
+When a request runs out of time, the server asks Joplin's `/ping`, with the same
+timeouts. If that gets no answer either, Joplin is taken to be hung: for the next
+30 seconds every tool call is refused at once with the same "didn't answer"
+message, without asking Joplin. When the 30 seconds are up, the next call pings
+first and goes ahead if Joplin answers; calls that come while it waits are still
+refused. A Joplin that answers its ping is never held, however slow a request
+was. In an outage the first call waits up to twice `SBJ_JOPLIN_TIMEOUT`, and the
+calls after it don't wait.
+See [Joplin didn't answer](troubleshooting.md#joplin-didnt-answer).
+
+Joplin's API takes the token in the address of each request, which is why Joplin should only ever
 be reached on the same machine, and why HTTP mode keeps that address out of its
 logs.
 
@@ -93,7 +111,10 @@ These apply to every tool, over stdio and HTTP alike.
 | `SBJ_NOTEBOOKS` | none: every notebook | Only these notebooks are visible |
 | `SBJ_EXCLUDE_NOTEBOOKS` | none | These notebooks are hidden |
 | `SBJ_WRITE_NOTEBOOKS` | none: read-only | New notes may be created in these notebooks. `*` means every visible notebook. Without it `joplin_create_note` doesn't exist |
-| `SBJ_ASK_EVERY_TIME` | `true` | `joplin_create_note` is marked to ask Claude's clients to put every call to a person. `false` leaves the mark off, for a client whose prompt for a marked tool can't be answered. Notes can then be created without asking you: read [what you give up](remote-access.md#a-client-whose-prompt-cant-be-answered) first |
+| `SBJ_EDIT_NOTEBOOKS` | none: no note can be changed | Notes in these notebooks may be changed by the tools that change notes. `*` means every visible notebook. Without it none of those tools exists. It is separate from `SBJ_WRITE_NOTEBOOKS`, which only ever allows a new note |
+| `SBJ_CREATE_NOTES_MAX` | `0`: off | With `SBJ_WRITE_NOTEBOOKS`, adds `joplin_create_notes`, which creates up to this many notes (at most 20) in one call, so one approval covers them all. 0 leaves it out. Anything but a whole number from 0 to 20 stops the server from starting |
+| `SBJ_REPLACE` | `false` | `true` adds `joplin_replace_note`, which rewrites a whole note, to the tools `SBJ_EDIT_NOTEBOOKS` allows. A value that is neither a yes nor a no stops the server from starting |
+| `SBJ_ASK_EVERY_TIME` | `true` | The write tools (`joplin_create_note`, `joplin_create_notes`, `joplin_edit_note`, `joplin_replace_note`) are marked to ask Claude's clients to put every call to a person. `false` leaves the mark off, for a client whose prompt for a marked tool can't be answered. Notes can then be created, and with `SBJ_EDIT_NOTEBOOKS` changed, without asking you: read [what you give up](remote-access.md#a-client-whose-prompt-cant-be-answered) first |
 
 - An entry is a notebook's **id or its exact title**, and covers that notebook
   and every notebook under it. Prefer ids: an id survives a rename, and a title
@@ -104,15 +125,35 @@ These apply to every tool, over stdio and HTTP alike.
 - **A setting that doesn't match Joplin's notebooks is refused,** never read as
   "everything". The server won't start (when Joplin isn't answering at start-up
   it starts, and checks on every call instead). If a notebook is renamed or
-  deleted while it runs, a wrong filter makes every tool refuse, and a wrong
-  `SBJ_WRITE_NOTEBOOKS` makes `joplin_create_note` refuse, until the setting is
-  fixed.
+  deleted while it runs, a wrong filter makes every tool refuse, a wrong
+  `SBJ_WRITE_NOTEBOOKS` makes note creation refuse, and a wrong
+  `SBJ_EDIT_NOTEBOOKS` makes the tools that change notes refuse, until the
+  setting is fixed.
 - `second-brain-joplin notebooks` lists every notebook with its id and shows
   what your settings make of it ([below](#second-brain-joplin-notebooks)).
 
 The rules in full:
-[Choosing which notebooks are exposed](remote-access.md#choosing-which-notebooks-are-exposed)
-and [Creating notes](remote-access.md#creating-notes).
+[Choosing which notebooks are exposed](remote-access.md#choosing-which-notebooks-are-exposed),
+[Creating notes](remote-access.md#creating-notes) and
+[Changing notes](remote-access.md#changing-notes).
+
+## Changing notes
+
+With `SBJ_EDIT_NOTEBOOKS` set, the server keeps a copy of a note before every
+change and limits how many changes it makes in a day
+([what protects a change](remote-access.md#changing-notes)).
+
+| Variable | Default | |
+|---|---|---|
+| `SBJ_UNDO_DIR` | `$XDG_DATA_HOME/second-brain-joplin/undo`, else `~/.local/share/second-brain-joplin/undo` | Where the kept copies go, one file per change, readable only by the user the server runs as |
+| `SBJ_UNDO_DAYS` | `90` | How many days a copy is kept at least; older ones are removed at the next change the server applies |
+| `SBJ_UNDO_MAX_MB` | `500` | The most the copies may take on disk; past it the oldest go first, never one from the last day |
+| `SBJ_CHANGES_PER_DAY` | `100` | The most changes in one day, all tools and restores together; a change counts unless it is known to have failed. New notes don't count. It resets at the server's local midnight |
+
+Each is a whole number of at least 1; anything else stops the commands from
+starting. The copies can't be switched off: they are what makes a change safe
+to allow. A copy holds the note's title, text and notebook as they were, so
+the folder holds note text, like the semantic index.
 
 ## Semantic search
 
@@ -212,8 +253,8 @@ Notebook filter: not set; every note is indexed. If the server has one, run this
 
 ### `second-brain-joplin notebooks`
 
-Lists every notebook with its id and note count, marked `hidden`, `visible` or
-`writable` under the settings it was run with. Use it to find the ids for the
+Lists every notebook with its id and note count, marked `hidden`, `visible`,
+`writable`, `editable` or `writable+editable` under the settings it was run with. Use it to find the ids for the
 notebook settings, and to check them before a client sees through them. It needs
 Joplin running.
 
@@ -224,21 +265,52 @@ Joplin running.
 ```
 Notebook filter: 3 of 4 notebooks visible.
 Note creation: allowed in the 1 marked writable.
+Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).
 writable  c7d1e5a09b3f4c2d8e6f1a0b9c8d7e6f  Inbox (4)
 hidden    5a1f0c2e9b7d4f63a8e1c0d2b4f6a7c9  Journal (212)
 visible   9c40d1e7a3b24f58b6c9e0f1a2d3b4c5  Work (57)
 visible   0b7e3f9a1c2d4e5f8a7b6c5d4e3f2a1b    Projects (31)
 ```
 
+With `SBJ_EDIT_NOTEBOOKS` set, the `Changing notes:` line says where notes may be changed
+(`Changing notes: allowed in the 2 marked editable.`), and a notebook that takes
+both new notes and changes is marked `writable+editable`.
+
 It lists hidden notebooks too, because this is your own terminal. When the
 settings don't match Joplin's notebooks, it still prints the tree, with `?` for
 each mark, and then says which entry is wrong. With `SBJ_ASK_EVERY_TIME=false`
-and note creation on, a third line at the top says so:
+and note creation on, a line after `Note creation:` says so:
 `Asking before each note: left to the client (SBJ_ASK_EVERY_TIME is off).`
+
+### `second-brain-joplin restore`
+
+Lists the copies the server kept of a note before changing it, or puts one back.
+
+| Option | |
+|---|---|
+| `NOTE_ID` | The note's 32-character id |
+| `--pick N` | Put copy N of the list back: its text, and its title if that changed |
+| `--force` | Restore even if the copy doesn't refer to an attachment the note has now |
+| `--env-file PATH` | Read settings from this file first (`SBJ_UNDO_DIR` above all) |
+
+```
+Kept copies of 4be0a1c2d3e4f5061728394a5b6c7d8e, newest first (in /home/me/.local/share/second-brain-joplin/undo):
+    1  2026-11-22 10:14:03  before joplin_edit_note     1904 characters  (applied)
+    2  2026-11-21 18:02:41  before joplin_edit_note     1873 characters  (applied)
+Put one back with --pick N.
+```
+
+It never shows a copy's text. A restore is kept as a change of its own, so the
+text it replaced can be put back the same way. It runs only on the server's
+machine, as an operator's command: no tool can restore. The daily limit
+doesn't stop a restore, but a restore counts toward it. It refuses a note in the trash, a conflict copy, an encrypted
+note and one that isn't Markdown, like every change. Without `--force` it also
+refuses a copy that would drop a reference to an attachment the note has now,
+because Joplin deletes an attachment no note refers to.
 
 ## Optional installs
 
-The base install has the read tools and note creation. Semantic search comes as
+The base install has every tool except semantic search, which comes as
 optional extras, so that the base stays small:
 
 | Extra | Adds | For |

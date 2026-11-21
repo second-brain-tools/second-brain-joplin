@@ -4685,6 +4685,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "respx" },
     { name = "ruff" },
+    { name = "sqlite-vec" },
 ]
 
 [package.metadata]
@@ -4714,6 +4715,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "respx", specifier = ">=0.21" },
     { name = "ruff" },
+    { name = "sqlite-vec", specifier = ">=0.1" },
 ]
 
 [[package]]

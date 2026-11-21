@@ -6,9 +6,20 @@ filtering, who may write where) is the tool layer's job.
 
 Requires Joplin Desktop running with the Web Clipper service enabled. The token
 is available at Tools → Options → Web Clipper.
+
+**When Joplin hangs.** A Joplin that was quit refuses the connection at once. One
+that hangs accepts it and never answers, so each request would wait out the whole
+timeout. After a request times out, the client asks Joplin's ``/ping``, with the
+same timeouts as any request. No answer means Joplin isn't answering: for the
+next ``HOLD_SECONDS`` every request is refused at once with the same message,
+without being sent. When the hold ends, the next request pings first (the others
+are still refused meanwhile): an answer lets it through, silence starts a new
+hold. A Joplin that answers its ping is never held, however slow a request was.
 """
 
+import time
 from collections.abc import Callable
+from enum import Enum
 from typing import Any
 
 import httpx
@@ -18,7 +29,9 @@ from .errors import (
     JoplinAPIError,
     JoplinAuthError,
     JoplinConnectionError,
+    JoplinError,
     JoplinNotFoundError,
+    JoplinUnavailableError,
 )
 
 JsonDict = dict[str, Any]
@@ -32,6 +45,23 @@ _NEVER_SENT = (
     httpx.PoolTimeout,
     httpx.UnsupportedProtocol,
 )
+
+LOCKED_MESSAGE = (
+    "This note is locked in Joplin, so its text can't be read or changed through "
+    "Joplin's API. Unlock it in Joplin first."
+)
+
+# The note properties a change may send Joplin (update_note).
+CHANGEABLE = frozenset({"body", "title", "parent_id"})
+
+# How long requests are refused at once after Joplin stopped answering.
+HOLD_SECONDS = 30.0
+
+
+class _Ping(Enum):
+    ANSWERED = "answered"
+    SILENT = "silent"  # connected, or tried to, and no answer in time
+    REFUSED = "refused"  # nothing listening: Joplin quit, which fails fast anyway
 
 
 class JoplinClient:
@@ -48,9 +78,14 @@ class JoplinClient:
         self._client = httpx.AsyncClient(
             base_url=settings.joplin_base_url,
             params={"token": settings.joplin_api_token},
-            timeout=settings.request_timeout,
+            timeout=httpx.Timeout(settings.request_timeout, connect=settings.connect_timeout),
             trust_env=False,
         )
+        # The hold (see the module's docstring). One client serves every tool call
+        # and the background sync, so what one call learns, the next one knows.
+        self.clock: Callable[[], float] = time.monotonic
+        self._held_until: float | None = None
+        self._checking = False  # a ping at the end of a hold is under way
 
     @property
     def base_url(self) -> str:
@@ -60,12 +95,68 @@ class JoplinClient:
         await self._client.aclose()
 
     async def ping(self) -> bool:
-        """Return True if the Joplin API is reachable and responding."""
+        """Return True if the Joplin API is reachable and responding.
+
+        Inside a hold it answers False at once, without asking.
+        """
         try:
-            response = await self._client.get("/ping")
-        except httpx.TransportError:  # refused, timed out, or the connection dropped
+            response = await self._request("GET", "/ping")
+        except JoplinError:
             return False
         return response.text.strip() == "JoplinClipperServer"
+
+    # -- the hold --------------------------------------------------------------
+
+    def _not_answering(self, *, maybe_sent: bool) -> JoplinUnavailableError:
+        return JoplinUnavailableError(
+            f"Joplin didn't answer at {self.base_url} within "
+            f"{self._settings.request_timeout:g} seconds — is Joplin Desktop running "
+            "and responsive?",
+            maybe_sent=maybe_sent,
+        )
+
+    def _answered(self) -> None:
+        """Joplin answered a request: whatever was held is over."""
+        self._held_until = None
+
+    def _hold(self) -> None:
+        self._held_until = self.clock() + HOLD_SECONDS
+
+    async def _ping_once(self) -> _Ping:
+        """Ask ``/ping``, outside the hold, with the usual timeouts. Changes no state.
+
+        A short timeout here would take a slow but healthy Joplin for a hung one,
+        and hold it again at the end of every hold.
+        """
+        try:
+            await self._client.get("/ping")
+        except httpx.TimeoutException:
+            return _Ping.SILENT
+        except httpx.TransportError:
+            return _Ping.REFUSED
+        return _Ping.ANSWERED  # any answer at all, an error page included
+
+    async def _gate(self) -> None:
+        """Refuse at once inside a hold; at its end, let a request through only if Joplin pings."""
+        if self._held_until is None:
+            return
+        if self._checking or self.clock() < self._held_until:
+            raise self._not_answering(maybe_sent=False)
+        self._checking = True
+        try:
+            ping = await self._ping_once()
+        finally:  # a cancelled call must not leave the gate shut for good
+            self._checking = False
+        if ping is _Ping.SILENT:
+            self._hold()
+            raise self._not_answering(maybe_sent=False)
+        # Joplin answers pings again (or quit, which the request will report itself).
+        self._held_until = None
+
+    async def _after_timeout(self) -> None:
+        """A request timed out: hold if Joplin doesn't answer its ping either."""
+        if await self._ping_once() is _Ping.SILENT:
+            self._hold()
 
     # -- low-level helpers ---------------------------------------------------
 
@@ -74,6 +165,10 @@ class JoplinClient:
         if response.is_success:
             return
         status = response.status_code
+        # Joplin's note lock (3.7): a locked note's text can't be read or changed
+        # through the API, and Joplin answers 403 saying so. That isn't the token.
+        if status == 403 and "locked" in response.text.lower():
+            raise JoplinAPIError(LOCKED_MESSAGE)
         if status in (401, 403):
             raise JoplinAuthError(
                 "Joplin rejected the request — check that JOPLIN_API_TOKEN is set and "
@@ -90,21 +185,21 @@ class JoplinClient:
         params: JsonDict | None = None,
         json: JsonDict | None = None,
     ) -> httpx.Response:
+        await self._gate()
         try:
             response = await self._client.request(method, path, params=params, json=json)
         except httpx.TimeoutException as exc:
-            raise JoplinConnectionError(
-                f"Joplin didn't answer at {self.base_url} within "
-                f"{self._settings.request_timeout:g} seconds — is Joplin Desktop running "
-                "and responsive?",
-                maybe_sent=not isinstance(exc, _NEVER_SENT),
-            ) from exc
+            await self._after_timeout()
+            raise self._not_answering(maybe_sent=not isinstance(exc, _NEVER_SENT)) from exc
         except httpx.TransportError as exc:  # refused, reset, DNS, protocol errors
+            # Not a hang: whatever was held is over, and this fails fast by itself.
+            self._answered()
             raise JoplinConnectionError(
                 f"Joplin is unreachable at {self.base_url} — is Joplin Desktop running "
                 "with the Web Clipper service enabled?",
                 maybe_sent=not isinstance(exc, _NEVER_SENT),
             ) from exc
+        self._answered()
         self._raise_for_status(response)
         return response
 
@@ -119,6 +214,7 @@ class JoplinClient:
         max_items: int | None = None,
         keep: ItemTest | None = None,
         stop: ItemTest | None = None,
+        max_pages: int | None = None,
     ) -> list[JsonDict]:
         """Follow Joplin's ``has_more``/``page`` pagination and collect items.
 
@@ -127,7 +223,9 @@ class JoplinClient:
         that many are found or Joplin runs out. That is what lets a filtered
         listing still fill its limit. ``stop`` ends the walk at the first item it
         answers True for (that item is left out), for endpoints ordered so that
-        nothing after it can qualify.
+        nothing after it can qualify. ``max_pages`` ends the walk after that many
+        pages whatever was found, so a filter that drops most items can't make a
+        call page through the whole vault.
         """
         items: list[JsonDict] = []
         base_params = dict(params or {})
@@ -142,7 +240,7 @@ class JoplinClient:
                 items.append(item)
                 if max_items is not None and len(items) >= max_items:
                     return items
-            if not data.get("has_more"):
+            if not data.get("has_more") or (max_pages is not None and page >= max_pages):
                 return items
             page += 1
 
@@ -164,19 +262,52 @@ class JoplinClient:
         """
         return await self._get_paginated("/notes", {"fields": "id,updated_time,parent_id"})
 
-    async def get_note(self, note_id: str) -> JsonDict:
-        """Return a single note including its full markdown body."""
-        params = {"fields": "id,title,body,parent_id,created_time,updated_time"}
+    async def get_note(self, note_id: str, fields: str | None = None) -> JsonDict:
+        """Return a single note including its full markdown body, or only ``fields``.
+
+        Joplin refuses to give a locked note's body; asked for other fields, it answers.
+        """
+        if fields is not None:
+            data_: JsonDict = (await self._get(f"/notes/{note_id}", {"fields": fields})).json()
+            return data_
+        params = {
+            "fields": "id,title,body,parent_id,created_time,updated_time,encryption_applied,"
+            "is_todo,todo_due,todo_completed,deleted_time,is_conflict,markup_language"
+        }
         data: JsonDict = (await self._get(f"/notes/{note_id}", params)).json()
         return data
 
-    async def search(self, query: str, limit: int, keep: ItemTest | None = None) -> list[JsonDict]:
+    async def get_folder_notes(self, folder_id: str) -> list[JsonDict]:
+        """Every note directly in one notebook (not its sub-notebooks), without bodies.
+
+        Joplin's own listing leaves out notes in the trash. Conflict copies are
+        flagged by ``is_conflict``, for the caller to leave out.
+        """
+        return await self._get_paginated(
+            f"/folders/{folder_id}/notes",
+            {"fields": "id,title,updated_time,is_todo,is_conflict,parent_id"},
+        )
+
+    async def get_note_tags(self, note_id: str) -> list[JsonDict]:
+        """The tags on one note (id and title)."""
+        return await self._get_paginated(f"/notes/{note_id}/tags", {"fields": "id,title"})
+
+    async def get_note_resources(self, note_id: str) -> list[JsonDict]:
+        """The attachments (resources) one note refers to, without their content."""
+        return await self._get_paginated(
+            f"/notes/{note_id}/resources", {"fields": "id,title,mime,size"}
+        )
+
+    async def search(
+        self, query: str, limit: int, keep: ItemTest | None = None, max_pages: int | None = None
+    ) -> list[JsonDict]:
         """Keyword-search notes, returning the first ``limit`` hits ``keep`` lets through."""
         return await self._get_paginated(
             "/search",
-            {"query": query, "type": "note", "fields": "id,title,body,parent_id"},
+            {"query": query, "type": "note", "fields": "id,title,body,parent_id,updated_time"},
             max_items=limit,
             keep=keep,
+            max_pages=max_pages,
         )
 
     async def get_recent(
@@ -206,6 +337,22 @@ class JoplinClient:
         except JoplinNotFoundError:
             return False
         return True
+
+    async def update_note(self, note_id: str, **change: str) -> JsonDict:
+        """Change one property of a note, and only that one; return Joplin's answer.
+
+        Joplin's ``PUT /notes/:id`` changes whatever properties it is sent, so the
+        request carries exactly one, from a fixed list: ``body``, ``title`` or
+        ``parent_id``. Returns an empty dict if the answer isn't a JSON object.
+        """
+        if len(change) != 1 or not set(change) <= CHANGEABLE:
+            raise ValueError(f"one of {sorted(CHANGEABLE)} at a time, got {sorted(change)}")
+        response = await self._request("PUT", f"/notes/{note_id}", json=dict(change))
+        try:
+            data = response.json()
+        except ValueError:
+            return {}
+        return data if isinstance(data, dict) else {}
 
     async def create_note(self, note_id: str, title: str, body: str, parent_id: str) -> JsonDict:
         """Create a note with a chosen id in the notebook ``parent_id``; return Joplin's note.

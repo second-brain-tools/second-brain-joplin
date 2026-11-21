@@ -61,9 +61,16 @@ class FakeVectorIndex:
     def __init__(self) -> None:
         self.model_name = ""
         self._records: dict[str, ChunkRecord] = {}
+        self._empty: dict[str, str] = {}
 
     def note_versions(self) -> dict[str, str]:
         return {r.note_id: r.updated_time for r in self._records.values()}
+
+    def empty_versions(self) -> dict[str, str]:
+        return dict(self._empty)
+
+    def mark_empty(self, note_id: str, version: str) -> None:
+        self._empty[note_id] = version
 
     def stored_text(self) -> str:
         """Everything a reader of the index could find in it: titles and chunk text."""
@@ -72,10 +79,12 @@ class FakeVectorIndex:
     def upsert(self, records: list[ChunkRecord]) -> None:
         for record in records:
             self._records[record.chunk_id] = record
+            self._empty.pop(record.note_id, None)
 
     def delete_notes(self, note_ids: list[str]) -> None:
         drop = set(note_ids)
         self._records = {cid: r for cid, r in self._records.items() if r.note_id not in drop}
+        self._empty = {nid: v for nid, v in self._empty.items() if nid not in drop}
 
     def query(self, embedding: list[float], k: int) -> list[QueryHit]:
         scored = [
@@ -94,6 +103,7 @@ class FakeVectorIndex:
     def reset(self, model_name: str) -> None:
         self.model_name = model_name
         self._records = {}
+        self._empty = {}
 
 
 class SharedVectorIndex(FakeVectorIndex):
@@ -129,7 +139,26 @@ class FakeJoplin:
         self.folders: dict[str, dict[str, Any]] = {}
         self.notes: dict[str, dict[str, Any]] = {}
         self.requests: list[str] = []  # the path of every request, in order
+        self.queries: list[str] = []  # the query of every /search request
+        # For tests to keep the ids they set up by: notebooks by name, and one note.
+        self.ids: dict[str, str] = {}
+        self.note_id = ""
+        self.puts: list[dict[str, Any]] = []  # the JSON body of every PUT /notes/:id
+        # Before a PUT is applied: a test can look at the world (the journal) then.
+        self.before_put: Callable[[str, dict[str, Any]], None] | None = None
+        self.put_loses_response = False  # apply the change, then time out
+        self.put_saves_nothing_and_times_out = False  # time out, apply nothing
+        self.put_refused = False  # the connection is refused: nothing applied
+        self.put_status: int | None = None  # answer with this error, applying nothing
+        self.note_tags: dict[str, list[str]] = {}  # note id -> tag titles
+        self.resources: dict[str, dict[str, Any]] = {}  # resource id -> {title, mime, size}
+        self.note_resources: dict[str, list[str]] = {}  # note id -> resource ids
+        self.pings = 0  # requests to /ping, kept apart from `requests`
         self.down = False
+        # Accept connections and answer nothing: every request times out.
+        self.hung = False
+        # /ping alone gets no answer (whatever the other routes do).
+        self.ping_silent = False
         # Called with a note's id just before that note is served on its own, so
         # a test can change the vault between a listing and the read that follows.
         self.before_note: Callable[[str], None] | None = None
@@ -192,12 +221,102 @@ class FakeJoplin:
         respx.get(f"{self.base_url}/notes").mock(side_effect=self._notes)
         respx.get(f"{self.base_url}/search").mock(side_effect=self._search)
         respx.post(f"{self.base_url}/notes").mock(side_effect=self._create)
-        respx.get(url__regex=rf"{base}/notes/[^/?]+").mock(side_effect=self._note)
+        respx.put(url__regex=rf"{base}/notes/[^/?]+(?:\?|$)").mock(side_effect=self._update)
+        respx.get(url__regex=rf"{base}/folders/[^/?]+/notes").mock(side_effect=self._folder_notes)
+        respx.get(url__regex=rf"{base}/notes/[^/?]+/tags").mock(side_effect=self._tags_of)
+        respx.get(url__regex=rf"{base}/notes/[^/?]+/resources").mock(side_effect=self._resources_of)
+        respx.get(url__regex=rf"{base}/resources/[^/?]+/notes").mock(side_effect=self._users_of)
+        respx.get(url__regex=rf"{base}/notes/[^/?]+(?:\?|$)").mock(side_effect=self._note)
+        respx.get(f"{self.base_url}/ping").mock(side_effect=self._ping)
 
-    def _page(self, request: httpx.Request, rows: list[dict[str, Any]]) -> httpx.Response:
+    def attach(self, note_id: str, title: str = "photo.jpg", mime: str = "image/jpeg") -> str:
+        """Give a note an attachment it refers to; return the attachment's id."""
+        resource_id = self._new_id()
+        self.resources[resource_id] = {
+            "id": resource_id,
+            "title": title,
+            "mime": mime,
+            "size": 1234,
+        }
+        self.refer(note_id, resource_id)
+        return resource_id
+
+    def refer(self, note_id: str, resource_id: str) -> None:
+        """Make a note refer to an existing attachment."""
+        self.note_resources.setdefault(note_id, []).append(resource_id)
+
+    def _folder_notes(self, request: httpx.Request) -> httpx.Response:
+        """A notebook's own notes; Joplin leaves the trash out, not conflict copies."""
+        folder_id = request.url.path.split("/")[-2]
+        rows = [
+            {"is_todo": 0, "is_conflict": 0, **n}
+            for n in self.notes.values()
+            if n["parent_id"] == folder_id and not n.get("deleted_time")
+        ]
+        return self._page(request, rows)
+
+    def _update(self, request: httpx.Request) -> httpx.Response:
+        """PUT /notes/:id: changes exactly the properties sent, as Joplin does."""
+        self.requests.append(f"PUT {request.url.path}")
+        if self.down or self.put_refused:
+            raise httpx.ConnectError("connection refused")
+        note_id = request.url.path.rsplit("/", 1)[-1]
+        payload = json.loads(request.content)
+        self.puts.append(payload)
+        if self.before_put is not None:
+            self.before_put(note_id, payload)
+        if self.put_saves_nothing_and_times_out:
+            raise httpx.ReadTimeout("no answer")
+        if self.put_status is not None:
+            return httpx.Response(self.put_status)
+        note = self.notes.get(note_id)
+        if note is None:
+            return httpx.Response(404)
+        note.update(payload)
+        note["updated_time"] = int(note.get("updated_time", 0)) + 1000
+        if self.put_loses_response:
+            raise httpx.ReadTimeout("the answer never arrived")
+        return httpx.Response(200, json=note)
+
+    def _tags_of(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request.url.path)
+        note_id = request.url.path.split("/")[-2]
+        rows = [{"id": f"tag-{t}", "title": t} for t in self.note_tags.get(note_id, [])]
+        return self._page(request, rows, record=False)
+
+    def _resources_of(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request.url.path)
+        note_id = request.url.path.split("/")[-2]
+        rows = [self.resources[r] for r in self.note_resources.get(note_id, [])]
+        return self._page(request, rows, record=False)
+
+    def _users_of(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request.url.path)
+        resource_id = request.url.path.split("/")[-2]
+        rows = [
+            {"id": n, "parent_id": self.notes[n]["parent_id"]}
+            for n, refs in self.note_resources.items()
+            if resource_id in refs and n in self.notes
+        ]
+        return self._page(request, rows, record=False)
+
+    def _ping(self, _request: httpx.Request) -> httpx.Response:
+        self.pings += 1
         if self.down:
             raise httpx.ConnectError("Joplin is down")
+        if self.hung or self.ping_silent:
+            raise httpx.ReadTimeout("no answer")
+        return httpx.Response(200, text="JoplinClipperServer")
+
+    def _page(
+        self, request: httpx.Request, rows: list[dict[str, Any]], *, record: bool = True
+    ) -> httpx.Response:
+        if record:
+            self.requests.append(request.url.path)
+        if self.down:
+            raise httpx.ConnectError("Joplin is down")
+        if self.hung:
+            raise httpx.ReadTimeout("no answer")
         fields = request.url.params.get("fields", "id,parent_id,title").split(",")
         page = int(request.url.params.get("page", "1"))
         start = (page - 1) * self.page_size
@@ -221,11 +340,60 @@ class FakeJoplin:
         return self._page(request, rows)
 
     def _search(self, request: httpx.Request) -> httpx.Response:
-        query = request.url.params.get("query", "").lower()
+        """Joplin's search, as far as the tests need it.
+
+        ``notebook:`` and ``-notebook:`` match notebook titles with SQL ``LIKE``
+        (``*``, ``%`` and ``_`` wildcards, either case) and take in every
+        sub-notebook, across the whole vault, as Joplin 3.7 does. Every other
+        word must appear in the title or the body.
+        """
+        query = request.url.params.get("query", "")
+        self.queries.append(query)
+        include: list[str] = []
+        exclude: list[str] = []
+
+        def term(match: re.Match[str]) -> str:
+            value = match.group(2).strip('"')
+            (exclude if match.group(1) else include).append(value)
+            return " "
+
+        # As Joplin's getTerms: a term starts at the start, after a space, or right
+        # after a closing quote.
+        pattern = r'(?:(?<=\s)|(?<=")|^)(-?)notebook:("[^"]*"|\S+)'
+        words = [w.strip('"') for w in re.sub(pattern, term, query, flags=re.I).lower().split()]
+        words = [w for w in words if w]
+
+        def matched(patterns: list[str]) -> set[str]:
+            regexes = [
+                re.compile(
+                    "".join(".*" if c in "%*" else "." if c == "_" else re.escape(c) for c in p),
+                    re.I,
+                )
+                for p in patterns
+            ]
+            roots = {
+                f
+                for f, row in self.folders.items()
+                if any(r.fullmatch(row["title"]) for r in regexes)
+            }
+            found = set(roots)
+            grew = True
+            while grew:
+                grew = False
+                for f, row in self.folders.items():
+                    if f not in found and row["parent_id"] in found:
+                        found.add(f)
+                        grew = True
+            return found
+
+        inside = matched(include) if include else None
+        outside = matched(exclude)
         rows = [
             note
             for note in self.notes.values()
-            if query in note["title"].lower() or query in note["body"].lower()
+            if (inside is None or note["parent_id"] in inside)
+            and note["parent_id"] not in outside
+            and all(w in note["title"].lower() or w in note["body"].lower() for w in words)
         ]
         return self._page(request, rows)
 
@@ -233,6 +401,8 @@ class FakeJoplin:
         self.requests.append(request.url.path)
         if self.down:
             raise httpx.ConnectError("Joplin is down")
+        if self.hung:
+            raise httpx.ReadTimeout("no answer")
         note_id = request.url.path.rsplit("/", 1)[-1]
         if self.note_status is not None:
             return httpx.Response(self.note_status)
@@ -241,12 +411,22 @@ class FakeJoplin:
         note = self.notes.get(note_id)
         if note is None:
             return httpx.Response(404)
+        fields = request.url.params.get("fields", "")
+        if note.get("is_locked") and (not fields or "body" in fields.split(",")):
+            # Joplin 3.7's note lock: the body is refused, other fields are given.
+            return httpx.Response(
+                403, json={"error": "The body of a locked note cannot be read through the API"}
+            )
+        if fields:
+            return httpx.Response(200, json={k: note[k] for k in fields.split(",") if k in note})
         return httpx.Response(200, json=note)
 
     def _create(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(f"POST {request.url.path}")
         if self.down or self.post_refused:
             raise httpx.ConnectError("connection refused")
+        if self.hung:
+            raise httpx.ReadTimeout("no answer")
         payload = json.loads(request.content)
         self.posts.append(payload)
         if self.post_status is not None:

@@ -50,11 +50,15 @@ READ_TOOLS = {
     "joplin_overview",
     "joplin_search",
     "joplin_read",
+    "joplin_read_notes",
+    "joplin_list_notes",
     "joplin_recent",
     "joplin_semantic_search",
     "joplin_reindex",
 }
 WRITE_TOOL = "joplin_create_note"
+# Registered by SBJ_EDIT_NOTEBOOKS: the tools that change a note, and the list of changes.
+EDIT_TOOLS = {"joplin_edit_note", "joplin_changes"}
 ASK_EVERY_TIME = "anthropic/requiresUserInteraction"
 # A first run installs the package and its dependencies before the server speaks.
 START_TIMEOUT = 300
@@ -139,7 +143,11 @@ async def check_stdio(server: Server, joplin_down: dict[str, str]) -> None:
             f"{info.name if info else None}, MCP {client.protocol_version}",
         )
         names = await tool_names(client)
-        check(names == READ_TOOLS, "stdio: exactly the six read-only tools", f"{len(names)} listed")
+        check(
+            names == READ_TOOLS,
+            f"stdio: exactly the {len(READ_TOOLS)} read-only tools",
+            f"{len(names)} listed",
+        )
         result = await client.call_tool("joplin_overview", raise_on_error=False)
         message = text_of(result)
         check(
@@ -166,6 +174,30 @@ async def check_stdio(server: Server, joplin_down: dict[str, str]) -> None:
         check(
             not await asks_every_time(client),
             "stdio: SBJ_ASK_EVERY_TIME=false leaves that mark off",
+        )
+
+    batch = {**joplin_down, "SBJ_WRITE_NOTEBOOKS": "Inbox", "SBJ_CREATE_NOTES_MAX": "20"}
+    async with server.stdio(batch) as client:
+        names = await tool_names(client)
+        check(
+            names == READ_TOOLS | {WRITE_TOOL, "joplin_create_notes"},
+            "stdio: SBJ_CREATE_NOTES_MAX adds joplin_create_notes",
+        )
+
+    async with server.stdio({**joplin_down, "SBJ_EDIT_NOTEBOOKS": "Inbox"}) as client:
+        tools = {tool.name: tool for tool in await client.list_tools()}
+        check(
+            set(tools) == READ_TOOLS | EDIT_TOOLS,
+            "stdio: SBJ_EDIT_NOTEBOOKS adds the tools that change notes and nothing else",
+            ", ".join(sorted(set(tools) - READ_TOOLS)),
+        )
+        edit_tool = tools.get("joplin_edit_note")
+        check(
+            edit_tool is not None
+            and edit_tool.annotations is not None
+            and edit_tool.annotations.destructive_hint is True
+            and (edit_tool.meta or {}).get(ASK_EVERY_TIME) is True,
+            "stdio: joplin_edit_note is marked destructive, and to be asked about on every call",
         )
 
 
@@ -234,7 +266,10 @@ async def check_http(server: Server, joplin_down: dict[str, str]) -> None:
             str(health),
         )
         async with Client(f"{address}/mcp", init_timeout=30) as client:
-            check(await tool_names(client) == READ_TOOLS, "http: MCP lists the same six tools")
+            check(
+                await tool_names(client) == READ_TOOLS,
+                f"http: MCP lists the same {len(READ_TOOLS)} tools",
+            )
 
     # HTTP is how a Claude connector reaches the server, so the mark is checked here too.
     writes = {**joplin_down, "SBJ_WRITE_NOTEBOOKS": "Inbox"}

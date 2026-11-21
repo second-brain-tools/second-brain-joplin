@@ -145,8 +145,12 @@ may receive new notes:
 "SBJ_WRITE_NOTEBOOKS": "Inbox"
 ```
 
-It can then add a note there and do nothing else. Whether you are asked before
-each note is up to your client. With the default settings, Claude Code asks
+It can then add a note there and do nothing else; changing notes takes a
+setting of its own, `SBJ_EDIT_NOTEBOOKS`
+([Changing notes](remote-access.md#changing-notes)). Whether you are asked before
+each note (or each call of `joplin_create_notes`, which can create several, if
+you turn it on with `SBJ_CREATE_NOTES_MAX`) is up to your client. With the
+default settings, Claude Code asks
 every time, and refuses the call where it can't ask. Other clients differ, and
 a setting named "Needs approval" doesn't always mean you are asked, so read
 [Who confirms each note](remote-access.md#who-confirms-each-note) before you

@@ -72,17 +72,25 @@ connectors (claude.ai, the Claude apps, Cowork) can reach it through a tunnel. S
 | Tool | Description | Writes? |
 |---|---|---|
 | `joplin_overview` | List all notebooks with note counts | No |
-| `joplin_search` | Keyword search across all notes (`limit` 1–50) | No |
-| `joplin_read` | Read a note by ID, a page at a time (`offset`, `max_chars` up to 100,000) | No |
+| `joplin_search` | Keyword search with Joplin's search words; each hit says its notebook and where the match is (`limit` 1–100) | No |
+| `joplin_read` | Read a note by ID or link, a page at a time (`offset`, `max_chars` up to 100,000), or its outline, or one section (`outline`, `section`); with its notebook, tags, to-do state, attachments and a checksum | No |
+| `joplin_read_notes` | Read up to 20 notes in one call, sharing 40,000 characters | No |
+| `joplin_list_notes` | List the notes in one notebook, a page at a time (`limit` 1–100, newest first or by title) | No |
+| `joplin_changes` | List the changes the server made to notes, with no text | No. Only with `SBJ_EDIT_NOTEBOOKS` |
 | `joplin_recent` | Notes modified in the last N days (`days` 1–3650, `limit` 1–100) | No |
 | `joplin_semantic_search` | Find notes by meaning (embeddings; `limit` 1–50) | No |
 | `joplin_reindex` | Build/refresh the semantic index | The local index only, never Joplin |
-| `joplin_create_note` | Add a new markdown note to a notebook you allow (`title`, `body`, `notebook` by title or id) | A new note; never edits, moves or deletes. Off by default |
+| `joplin_create_note` | Add a new markdown note to a notebook you allow (`title`, `body`, `notebook` by title or id) | A new note, nothing else. Off by default |
+| `joplin_create_notes` | Add up to 20 new notes in one call | New notes, nothing else. Off by default (`SBJ_CREATE_NOTES_MAX`) |
+| `joplin_edit_note` | Change part of a note (exact text replaced), or add to a section, its start or its end | Changes a note, after keeping a copy of it. Off by default (`SBJ_EDIT_NOTEBOOKS`) |
+| `joplin_replace_note` | Replace the whole text of a short note that is rebuilt each time | Rewrites a note, after keeping a copy of it. Off by default (`SBJ_EDIT_NOTEBOOKS` and `SBJ_REPLACE`) |
 
 [docs/tools.md](docs/tools.md) describes each tool's arguments, results and
 errors. Every tool carries MCP annotations (read-only; for `joplin_reindex`
-local and non-destructive; for `joplin_create_note` a write that only adds), so
-clients can tell what each one does.
+local and non-destructive; for `joplin_create_note` and `joplin_create_notes`
+a write that only adds; for `joplin_edit_note` and `joplin_replace_note` a
+destructive write, since a change can remove text), so clients can tell what
+each one does.
 
 `joplin_create_note` exists only once you set `SBJ_WRITE_NOTEBOOKS` to the
 notebooks that may receive notes (ids or titles, or `*` for every visible one).
@@ -133,6 +141,35 @@ fresh incrementally — only notes changed since the last sync are re-embedded.
 
 ---
 
+## vs. Joplin's built-in MCP server
+
+Since 3.7, Joplin Desktop has an MCP server of its own (Settings → AI → "Enable
+MCP server", a beta feature, off by default). If your AI client runs on the same
+computer as Joplin and may see every notebook, it is the simplest choice:
+nothing to install, and it can already edit notes, move them to the trash and
+manage tags. second-brain-joplin is for the cases it doesn't cover:
+
+| | Joplin's built-in server | second-brain-joplin |
+|---|---|---|
+| Where the client can be | The same computer only | The same computer, or anywhere: a Claude custom connector for the web and phone apps |
+| Sign-in | Joplin's Web Clipper token, in the address of each request | The token locally; remotely, GitHub sign-in limited to the accounts you list |
+| Which notebooks | All of them | The ones you choose; hidden notebooks are left out of every tool |
+| Where it can write | Anywhere, one switch per tool | Only the notebooks you list |
+| What it can change | Create, edit, trash, tags, notebooks | New notes, and edits to notes in the notebooks you list, each checked against the version read, with a copy kept first and a daily limit |
+| A record of calls | Joplin's Web Clipper log has one line per request: its address, token included, not which tool ran. No rate limit | In HTTP mode, one log line per call (tool, caller, outcome, time), never the token, and a rate limit per caller. On any transport, a kept copy of every changed note, listed by `joplin_changes` and put back with `second-brain-joplin restore` |
+| Search by meaning | Joplin's AI features must be on | A local index of its own |
+| Clients | Ones that speak MCP over HTTP | stdio and HTTP |
+
+Compared with Joplin 3.7.24 (November 2026). Joplin's server is in beta and
+changing quickly, so check its own documentation. The two can run side by side.
+
+The aim is that everything the built-in server can do, this one can do too,
+under the same filter, sign-in and log. Editing, richer search and reading by
+section come in 1.2; the trash, moving notes, tags, to-dos and new notebooks in
+1.3 (see the [Roadmap](#roadmap)).
+
+---
+
 ## vs. second-brain-mcp (Obsidian)
 
 | | [second-brain-mcp](https://github.com/noesskeetit/second-brain-mcp) | second-brain-joplin |
@@ -141,7 +178,7 @@ fresh incrementally — only notes changed since the last sync are re-embedded.
 | Storage | Plain `.md` files on disk | Joplin REST API |
 | Requires app running | No | Yes (Joplin + Web Clipper) |
 | Semantic search | Yes (bge-m3) | Yes (FastEmbed / bge-m3) |
-| Write support | Human-gated | New notes only, where you allow, approved in your client |
+| Write support | Human-gated | New notes and edits, where you allow, with a copy kept before each change |
 | Install | `uvx second-brain-mcp` | `uvx second-brain-joplin` |
 
 ---
@@ -177,12 +214,14 @@ The [PARA method](https://fortelabs.com/blog/para/) works well with Joplin. See 
 | [v0.4 — Remote Access](https://github.com/second-brain-tools/second-brain-joplin/milestone/6) | Streamable HTTP, GitHub sign-in, Claude custom connector | Done |
 | [v0.5 — Write Workflow](https://github.com/second-brain-tools/second-brain-joplin/milestone/4) | Notebook filter; note creation you allow and approve | Done |
 | [v1.0 — Publish](https://github.com/second-brain-tools/second-brain-joplin/milestone/5) | PyPI, full docs, templates | Done |
+| [v1.2 — Edit](https://github.com/second-brain-tools/second-brain-joplin/milestone/7) | Change notes safely; search results that say where the match is; reading by section | Done |
+| [v1.3 — Organise](https://github.com/second-brain-tools/second-brain-joplin/milestone/8) | Move, trash, tags, to-dos, notebooks and attachments | Planned |
 
 ---
 
 ## Security & privacy
 
-By default (stdio) this server keeps your notes local: it talks only to Joplin's Web Clipper REST API on `localhost` and runs on your own machine. HTTP mode, for a Claude custom connector, deliberately sends what Claude reads to Anthropic, behind GitHub sign-in limited to your account ([remote access](docs/remote-access.md)). Anything an MCP client can read, the connected AI can read — so apply least privilege and don't expose notebooks with credentials or other sensitive data; a notebook filter (`SBJ_NOTEBOOKS` / `SBJ_EXCLUDE_NOTEBOOKS`) keeps chosen notebooks out of every tool. The server is read-only until you list the notebooks that may receive notes; it can then add a new note there and nothing else, and your client's approval prompt, where the client asks, is the check on each one.
+By default (stdio) this server keeps your notes local: it talks only to Joplin's Web Clipper REST API on `localhost` and runs on your own machine. HTTP mode, for a Claude custom connector, deliberately sends what Claude reads to Anthropic, behind GitHub sign-in limited to your account ([remote access](docs/remote-access.md)). Anything an MCP client can read, the connected AI can read — so apply least privilege and don't expose notebooks with credentials or other sensitive data; a notebook filter (`SBJ_NOTEBOOKS` / `SBJ_EXCLUDE_NOTEBOOKS`) keeps chosen notebooks out of every tool. The server is read-only until you list the notebooks that may receive notes (`SBJ_WRITE_NOTEBOOKS`) or whose notes may change (`SBJ_EDIT_NOTEBOOKS`). A change is checked against the version of the note that was read, the note is copied to the server's disk first, and a daily limit bounds the changes ([Changing notes](docs/remote-access.md#changing-notes)); your client's approval prompt, where the client asks, is the check on each call.
 
 Two caveats apply once you enable semantic search: it writes a **local index** (under your XDG data dir by default) that stores note text excerpts and titles alongside the embeddings, and it downloads the embedding model **once over the network** on the first reindex. Your note *content* is embedded locally and never leaves your machine. See [SECURITY.md](SECURITY.md) for details and how to report a vulnerability.
 

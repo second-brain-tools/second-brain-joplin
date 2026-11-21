@@ -59,8 +59,9 @@ The weekly review works the same way:
 
 > Which notes did I change this week?
 
-The server only adds notes. Moving a note out of the Inbox, and ticking a box,
-stay with you in Joplin.
+The server adds notes, and, where you allow it with `SBJ_EDIT_NOTEBOOKS`,
+changes them: a line appended to a project's log, a decision recorded. Moving a
+note out of the Inbox stays with you in Joplin.
 
 ## Make them yours
 

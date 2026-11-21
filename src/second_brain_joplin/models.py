@@ -12,11 +12,19 @@ EXCERPT_LENGTH = 200
 
 # Bounds on what one tool call may ask for. Claude caps a tool result near 150,000
 # characters, so a single page of a note stays well under that.
-MAX_SEARCH_LIMIT = 50
+MAX_SEARCH_LIMIT = 100
+MAX_SEMANTIC_LIMIT = 50
+# A keyword search looks at no more than this many pages of Joplin's answer (100 hits
+# each), however few of them the notebook filter lets through.
+MAX_SEARCH_PAGES = 20
 MAX_RECENT_LIMIT = 100
+MAX_LIST_LIMIT = 100
 MAX_RECENT_DAYS = 3650
 READ_DEFAULT_CHARS = 50_000
 READ_MAX_CHARS = 100_000
+# joplin_read_notes: at most this many notes, sharing this many characters of text.
+READ_NOTES_MAX = 20
+READ_NOTES_BUDGET = 40_000
 # Bounds on a note the write tool may create: one page of joplin_read holds it.
 MAX_TITLE_CHARS = 300
 MAX_NOTE_CHARS = 100_000
@@ -35,12 +43,22 @@ def excerpt(body: str) -> str:
     return text[:EXCERPT_LENGTH].rstrip() + "…"
 
 
-class Note(BaseModel):
-    """A Joplin note, or one page of a long one.
+class Attachment(BaseModel):
+    """A file attached to a note (a Joplin resource): what it is, not its content."""
 
-    ``body`` holds the characters from ``offset``; ``total_chars`` is the whole
-    body's length, and ``next_offset`` is where the next page starts, or None
-    when this page reaches the end.
+    id: str
+    title: str
+    mime: str
+    size: int
+
+
+class Note(BaseModel):
+    """A Joplin note, or one page of a long one, or of one section, or its outline.
+
+    ``body`` holds the characters from ``offset`` of what was asked for: the whole
+    body, one section (``section_path``, ``section_heading``) or the outline
+    (``is_outline``). ``total_chars`` is that text's length, and ``next_offset`` is
+    where the next page starts, or None when this page reaches the end.
     """
 
     id: str
@@ -52,6 +70,29 @@ class Note(BaseModel):
     offset: int = 0
     total_chars: int = 0
     next_offset: int | None = None
+    section_path: str | None = None
+    section_heading: str | None = None
+    is_outline: bool = False
+    notebook: str | None = None
+    notebook_path: list[str] = []
+    tags: list[str] = []
+    is_todo: bool = False
+    todo_due: str | None = None
+    todo_completed: str | None = None
+    attachments: list[Attachment] = []
+    body_sha256: str = ""
+
+
+class NotesRead(BaseModel):
+    """Several notes read in one call, sharing one budget of characters.
+
+    A note cut short by the budget has ``next_offset`` set: read the rest with
+    ``joplin_read``. ``not_found`` lists the ids that are missing or hidden, alike.
+    """
+
+    notes: list[Note]
+    not_found: list[str]
+    budget: int
 
 
 class RecentNote(BaseModel):
@@ -63,11 +104,93 @@ class RecentNote(BaseModel):
 
 
 class SearchResult(BaseModel):
-    """A search hit: note identity plus a short body excerpt."""
+    """A search hit: the note, the start of its text, and where the match is.
+
+    ``snippet``, ``section`` and ``section_heading`` are null when the query has
+    no plain word to find in the body (a filter-only query such as ``tag:x``).
+    """
 
     id: str
     title: str
     excerpt: str
+    notebook_id: str = ""
+    updated_time: str | None = None
+    snippet: str | None = None
+    section: str | None = None
+    section_heading: str | None = None
+
+
+class CreatedItem(BaseModel):
+    """One item of joplin_create_notes, in the order given.
+
+    ``outcome`` is ``created``, ``already_created`` (a repeat found the note an
+    earlier call made), ``failed`` (nothing created; ``reason`` says why),
+    ``unconfirmed`` (it may or may not have been created) or ``not_attempted``
+    (writing stopped at an earlier item). ``id`` is set wherever a note exists or
+    may exist.
+    """
+
+    title: str
+    notebook: str
+    outcome: str
+    id: str | None = None
+    reason: str | None = None
+    chars: int = 0
+    body_sha256: str = ""
+
+
+class CreatedNotes(BaseModel):
+    """The result of joplin_create_notes: one entry per item, in order."""
+
+    notes: list[CreatedItem]
+
+
+class ChangedNote(BaseModel):
+    """What a tool that changes a note did: enough to check it without reading it again."""
+
+    id: str
+    title: str
+    notebook_id: str
+    notebook: str
+    old_chars: int
+    new_chars: int
+    old_sha256: str
+    new_sha256: str
+    updated_time: str | None = None
+    # The same request was answered earlier, and the note still holds its result:
+    # nothing was written this time.
+    already_applied: bool = False
+
+
+class Change(BaseModel):
+    """One change the server made, as joplin_changes lists it. Never any text."""
+
+    at: str
+    tool: str
+    note_id: str
+    title: str | None  # the note's title now; null when the note is gone
+    old_chars: int
+    new_chars: int
+    outcome: str
+
+
+class ListedNote(BaseModel):
+    """A note in a notebook's listing."""
+
+    id: str
+    title: str
+    updated_time: str
+    is_todo: bool
+
+
+class NoteListing(BaseModel):
+    """One page of a notebook's own notes. ``next_offset`` is null on the last page."""
+
+    notebook_id: str
+    notebook: str
+    notes: list[ListedNote]
+    total: int
+    next_offset: int | None = None
 
 
 class Notebook(BaseModel):
@@ -112,3 +235,6 @@ class CreatedNote(BaseModel):
     notebook: str
     created_time: str | None = None
     already_created: bool = False
+    # The text as sent, to check a copy without reading it back.
+    chars: int = 0
+    body_sha256: str = ""

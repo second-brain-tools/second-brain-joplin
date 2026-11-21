@@ -44,7 +44,15 @@ first installed ([Updating](install.md#updating)).
 **"SBJ_ASK_EVERY_TIME must be true or false".** The server won't start with a
 value it can't read for that setting, because a typo there would otherwise pass
 for an answer. Use `true` or `false`, or remove the variable to keep the
-default, which is true.
+default, which is true. `SBJ_REPLACE` is read the same way; its default is
+false.
+
+**"… must be a number of seconds above 0", "… must be a whole number of at
+least 1", "SBJ_CREATE_NOTES_MAX must be a whole number from 0 to 20".** A
+timeout (`SBJ_JOPLIN_TIMEOUT`, `SBJ_JOPLIN_CONNECT_TIMEOUT`), a journal or limit
+setting (`SBJ_UNDO_DAYS`, `SBJ_UNDO_MAX_MB`, `SBJ_CHANGES_PER_DAY`) or
+`SBJ_CREATE_NOTES_MAX` has a value the commands can't use. Fix it, or remove the
+variable to keep its default ([configuration](configuration.md)).
 
 ## A tool answers with an error
 
@@ -56,9 +64,23 @@ service enabled?"** Nothing is listening at Joplin's address.
   Service**.
 - If you changed the port in Joplin, set `JOPLIN_BASE_URL` to match.
 
+<a id="joplin-didnt-answer"></a>
 **"Joplin didn't answer at … within 10 seconds".** Joplin is there and didn't
 answer in time. Right after you enable the Web Clipper service, or while Joplin
 is starting or busy with a large sync, this can last a minute. Try again.
+
+- If Joplin doesn't answer its `/ping` either, the server stops asking it for
+  30 seconds: calls in that time get this message at once, instead of each
+  waiting out the timeout. The first call after that pings Joplin and goes ahead
+  if it answers. Nothing needs restarting. A Joplin that answers its ping is
+  never held: each slow request just waits out its own timeout.
+- If this keeps happening, Joplin is hung: quit it and open it again. A Joplin
+  that was quit gives "Joplin is unreachable" at once.
+- If only large searches run out of time, raise `SBJ_JOPLIN_TIMEOUT`
+  ([configuration](configuration.md#joplin)).
+- In HTTP mode the log line of such a call ends in
+  `outcome=error:JoplinUnavailableError`, so an outage can be counted from the
+  log.
 
 **"Joplin rejected the request — check that JOPLIN_API_TOKEN is set …".** The
 token is missing or isn't the one Joplin shows.
@@ -72,8 +94,9 @@ token is missing or isn't the one Joplin shows.
 [notebook filter](configuration.md#notebooks) hides it.
 
 **"The server's notebook settings … don't match Joplin's notebooks".** A
-notebook named in `SBJ_NOTEBOOKS`, `SBJ_EXCLUDE_NOTEBOOKS` or
-`SBJ_WRITE_NOTEBOOKS` was renamed, deleted or duplicated. The tools refuse
+notebook named in `SBJ_NOTEBOOKS`, `SBJ_EXCLUDE_NOTEBOOKS`,
+`SBJ_WRITE_NOTEBOOKS` or `SBJ_EDIT_NOTEBOOKS` was renamed, deleted or
+duplicated. The tools refuse
 rather than guess. On the server's machine, run:
 
 ```bash
@@ -103,6 +126,9 @@ which it does every few minutes. Synchronise it by hand to see the note now.
 own search and follows [its rules](https://joplinapp.org/help/apps/search): it
 matches whole words. Search for `remodel*` to match "remodelling", put a phrase
 in double quotes, or use `joplin_semantic_search`, which matches by meaning.
+With a notebook filter that hides most notes, a search stops after 20 pages of
+Joplin's answer (2,000 notes) and can return fewer than `limit` hits: add a word,
+or a `notebook:` filter for the notebook you mean.
 
 **A whole notebook is missing.** It is hidden by `SBJ_NOTEBOOKS` or
 `SBJ_EXCLUDE_NOTEBOOKS`. `second-brain-joplin notebooks` shows which notebooks
@@ -182,6 +208,45 @@ minutes isn't created twice.
 
 **The new note isn't on your other devices.** It is created in the Joplin on the
 server's machine and reaches the others at that Joplin's next sync.
+
+## Changing notes
+
+**"This note's notebook isn't one whose notes can be changed. Those are: …"**
+The note is outside `SBJ_EDIT_NOTEBOOKS`. Move it in Joplin, or add its
+notebook to the list ([configuration](configuration.md#notebooks)).
+
+**"The title doesn't match …" or "The note has changed since it was read …".**
+The note changed in Joplin after Claude read it, or Claude gave a stale title or
+checksum. Nothing was written. Ask Claude to read the note again and make the
+change on what it says now.
+
+**"Edit N: its old text isn't in the note …" / "… appears K times …".** An
+edit has to name text copied exactly from the note, found once. Nothing was
+written.
+
+**"The change would remove N reference(s) to the note's attachments …".** Joplin
+deletes an attachment no note refers to, so a change that drops a `:/<id>` is
+refused. Keep the reference, or remove the attachment in Joplin yourself.
+
+**"The server's limit of N changes a day is reached …".** `SBJ_CHANGES_PER_DAY`
+(100) changes were made today; it says when it resets. Raise the setting if your
+day needs more, after looking at `joplin_changes` to see what used them.
+
+**"The server couldn't keep a copy of the note before changing it …".** The
+folder `SBJ_UNDO_DIR` can't be written (full disk, permissions). Nothing was
+changed. The server's log says why.
+
+**"This note is locked in Joplin …".** Joplin's note lock protects it: unlock
+it in Joplin first.
+
+**"… The change may or may not have been made …".** Joplin took the request and
+didn't answer. Read the note to see; sending the same change again won't make
+it twice.
+
+**Putting a note back.** Every change keeps a copy of the note first. On the
+server's machine, `second-brain-joplin restore <note id>` lists the copies, and
+`--pick N` puts one back
+([the command](configuration.md#second-brain-joplin-restore)).
 
 ## HTTP mode
 
@@ -276,10 +341,12 @@ The server writes its log to standard error.
 - **Claude Desktop:** one log per server, `mcp-server-second-brain-joplin.log`,
   in `~/Library/Logs/Claude` on macOS and `%APPDATA%\Claude\logs` on Windows.
 - **HTTP mode:** wherever your service manager sends standard error. One line
-  per tool call says which tool, who called, the outcome and how long it took:
+  per tool call says which tool, who called, the outcome and how long it took.
+  A failed call names what failed, by the error's class name only:
 
   ```
   2026-11-12 16:40:02,113 INFO second_brain_joplin.audit: tool=joplin_search caller=65598 outcome=ok ms=41
+  2026-11-12 16:41:10,502 INFO second_brain_joplin.audit: tool=joplin_read caller=65598 outcome=error:JoplinUnavailableError ms=0
   ```
 
 The logs never hold a note's title or text, a search query or a token

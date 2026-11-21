@@ -53,6 +53,24 @@ uv sync --extra semantic                 # sqlite-vec + FastEmbed (light default
 # or: uv sync --extra semantic --extra semantic-chroma  # ChromaDB vector store
 ```
 
+### Live write checks
+
+The unit tests use a fake Joplin. Before a release that adds or changes a tool
+that writes, run the write checks against a real Joplin:
+
+```bash
+uv run python scripts/live_write_check.py --yes-write-to .env [--wait-history 12]
+```
+
+It writes to the Joplin the env file names (`JOPLIN_API_TOKEN`, and
+`JOPLIN_BASE_URL` if needed), so it refuses to run without `--yes-write-to`.
+Everything happens in a temporary notebook it creates and permanently deletes;
+it compares the vault's notebook and note counts before and after, and prints
+counts, ids and ok/FAIL, never a note's text. `--wait-history N` also waits up to
+N minutes for Joplin to record the change in its note history. On a synced vault
+the temporary notebook shows on the other devices for a few minutes. It isn't
+collected by pytest or run in CI. What it found is in the docs beside each tool.
+
 ## Linting and type checking
 
 ```bash

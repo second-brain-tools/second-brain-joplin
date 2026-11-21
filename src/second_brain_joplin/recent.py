@@ -14,6 +14,9 @@ import hashlib
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
 
 REMEMBER_SECONDS = 600.0
 REMEMBER_AT_MOST = 256
@@ -29,8 +32,8 @@ def note_key(notebook_id: str, title: str, body: str) -> str:
     return digest.hexdigest()
 
 
-class RecentNotes:
-    """Which note id was sent for which note, for the last few minutes."""
+class Recent(Generic[T]):
+    """What was answered for a request, for the last few minutes, by the request's digest."""
 
     def __init__(
         self,
@@ -41,26 +44,40 @@ class RecentNotes:
         self._seconds = seconds
         self._at_most = at_most
         self._clock = clock
-        self._sent: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        self._sent: OrderedDict[str, tuple[T, float]] = OrderedDict()
 
-    def get(self, key: str) -> str | None:
-        """The id sent for this note, if it was sent recently enough."""
+    def get(self, key: str) -> T | None:
+        """What was remembered for this request, if recently enough."""
         entry = self._sent.get(key)
         if entry is None:
             return None
-        note_id, at = entry
+        value, at = entry
         if self._clock() - at > self._seconds:
             del self._sent[key]
             return None
-        return note_id
+        return value
 
-    def put(self, key: str, note_id: str) -> None:
-        """Remember that ``note_id`` was sent for this note, forgetting the oldest if full."""
+    def put(self, key: str, value: T) -> None:
+        """Remember ``value`` for this request, forgetting the oldest if full."""
         self._sent.pop(key, None)
-        self._sent[key] = (note_id, self._clock())
+        self._sent[key] = (value, self._clock())
         while len(self._sent) > self._at_most:
             self._sent.popitem(last=False)
 
     def forget(self, key: str) -> None:
-        """Drop a note that turned out not to have been created."""
+        """Drop a request whose answer turned out not to stand."""
         self._sent.pop(key, None)
+
+
+class RecentNotes(Recent[str]):
+    """Which note id was sent for which new note, for the last few minutes."""
+
+
+def request_key(*parts: str) -> str:
+    """A digest of a request's parts, the same for the same request."""
+    digest = hashlib.sha256()
+    for part in parts:
+        encoded = part.encode()
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return digest.hexdigest()

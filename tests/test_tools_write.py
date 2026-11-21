@@ -736,3 +736,41 @@ async def test_the_result_carries_no_note_text(
     monkeypatch.setenv("SBJ_WRITE_NOTEBOOKS", "Inbox")
     result = await _create(notebook="Inbox", body="a long body nobody needs echoed back")
     assert "nobody needs echoed" not in json.dumps(result)
+
+
+# -- when Joplin hangs (#86) -------------------------------------------------------
+
+
+async def test_a_create_that_times_out_on_a_hung_joplin_is_a_maybe_without_waiting_again(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SBJ_WRITE_NOTEBOOKS", "Inbox")
+    vault.joplin.post_saves_late = True  # the POST times out
+    vault.joplin.ping_silent = True  # and Joplin answers nothing else either
+    message = await _refused(notebook="Inbox")
+    assert "may or may not have been created" in message
+    # The look-up for the note was refused by the hold, not sent and waited out.
+    note_id = vault.joplin.posts[0]["id"]
+    assert vault.joplin.count(f"/notes/{note_id}") == 0
+
+
+async def test_a_create_inside_a_hold_sends_nothing_and_says_nothing_was_created(
+    vault: Vault, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SBJ_WRITE_NOTEBOOKS", "Inbox")
+    async with Client(_server()) as client:
+        vault.joplin.hung = True
+        with pytest.raises(ToolError, match="didn't answer"):
+            await client.call_tool(
+                "joplin_create_note", {"title": "A", "body": "b", "notebook": "Inbox"}
+            )
+        folders_asked = vault.joplin.count("/folders")
+        vault.joplin.hung = False  # recovered, but the hold still runs
+        with pytest.raises(ToolError) as raised:
+            await client.call_tool(
+                "joplin_create_note", {"title": "A", "body": "b", "notebook": "Inbox"}
+            )
+    assert "didn't answer" in str(raised.value)
+    assert "may or may not" not in str(raised.value)
+    assert vault.joplin.count("/folders") == folders_asked
+    assert vault.joplin.posts == []

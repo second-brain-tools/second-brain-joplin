@@ -101,6 +101,7 @@ async def test_search_empty_returns_empty_list() -> None:
 
 @respx.mock
 async def test_read_converts_timestamps() -> None:
+    _mock_note_extras()
     respx.get(f"{BASE_URL}/notes/{ABC}").mock(
         return_value=httpx.Response(
             200,
@@ -125,6 +126,7 @@ async def test_read_converts_timestamps() -> None:
 
 @respx.mock
 async def test_read_missing_note_raises_tool_error() -> None:
+    _mock_note_extras()
     respx.get(f"{BASE_URL}/notes/{MISSING}").mock(return_value=httpx.Response(404))
     async with Client(mcp) as client:
         with pytest.raises(ToolError, match="was not found"):
@@ -160,7 +162,17 @@ async def test_tool_surfaces_connection_error() -> None:
             await client.call_tool("joplin_overview", {})
 
 
+def _mock_note_extras() -> None:
+    """What joplin_read asks for besides the note: notebooks, tags, attachments."""
+    empty = httpx.Response(200, json={"items": [], "has_more": False})
+    respx.get(f"{BASE_URL}/folders").mock(return_value=empty)
+    respx.get(url__regex=rf"{BASE_URL}/notes/[0-9a-f]{{32}}/(tags|resources)").mock(
+        return_value=empty
+    )
+
+
 def _mock_note(body: str) -> None:
+    _mock_note_extras()
     respx.get(f"{BASE_URL}/notes/{LONG}").mock(
         return_value=httpx.Response(
             200,
@@ -236,7 +248,7 @@ async def test_read_counts_characters_not_bytes() -> None:
     [
         ("joplin_search", {"query": "q", "limit": 0}),
         ("joplin_search", {"query": "q", "limit": -1}),
-        ("joplin_search", {"query": "q", "limit": 51}),
+        ("joplin_search", {"query": "q", "limit": 101}),
         ("joplin_search", {"query": "q", "limit": 10**9}),
         ("joplin_recent", {"limit": 0}),
         ("joplin_recent", {"limit": 101}),
@@ -273,5 +285,93 @@ async def test_limits_at_the_ceiling_are_accepted() -> None:
         return_value=httpx.Response(200, json={"items": [], "has_more": False})
     )
     async with Client(mcp) as client:
-        result = await client.call_tool("joplin_search", {"query": "q", "limit": 50})
+        result = await client.call_tool("joplin_search", {"query": "q", "limit": 100})
     assert result.data == []
+
+
+# -- the outline, and one section (#99) --------------------------------------------
+
+SECTIONED = "Intro.\n\n# Plan\n\nText.\n\n## Budget\n\nMoney.\n\n# Log\n\n- one\n"
+
+
+@respx.mock
+async def test_read_outline_gives_the_headings_not_the_text() -> None:
+    _mock_note(SECTIONED)
+    note = await _read(outline=True)
+    assert _attr(note, "is_outline") is True
+    lines = _attr(note, "body").splitlines()
+    assert [line.split("\t")[0] for line in lines] == ["0", "1", "1.1", "2"]
+    assert lines[2].endswith("\tBudget")
+    assert "Money" not in _attr(note, "body")
+    assert _attr(note, "total_chars") == len(_attr(note, "body"))
+
+
+@respx.mock
+async def test_read_one_section_by_path_or_heading() -> None:
+    _mock_note(SECTIONED)
+    by_path = await _read(section="1.1")
+    by_heading = await _read(section="Budget")
+    assert _attr(by_path, "body") == "## Budget\n\nMoney.\n\n"
+    assert _attr(by_heading, "body") == _attr(by_path, "body")
+    assert (_attr(by_path, "section_path"), _attr(by_path, "section_heading")) == ("1.1", "Budget")
+    plan = await _read(section="Plan")
+    assert _attr(plan, "body").endswith("Money.\n\n")  # subsections included
+
+
+@respx.mock
+async def test_read_pages_within_a_section() -> None:
+    _mock_note(SECTIONED)
+    first = await _read(section="1", max_chars=5)
+    assert _attr(first, "body") == "# Pla"
+    assert _attr(first, "next_offset") == 5
+    rest = await _read(section="1", offset=5, max_chars=1000)
+    assert (
+        _attr(first, "body") + _attr(rest, "body")
+        == SECTIONED[SECTIONED.index("# Plan") : SECTIONED.index("# Log")]
+    )
+    assert _attr(rest, "next_offset") is None
+
+
+@respx.mock
+async def test_a_plain_read_carries_no_section() -> None:
+    _mock_note(SECTIONED)
+    note = await _read()
+    assert _attr(note, "section_path") is None
+    assert _attr(note, "is_outline") is False
+    assert _attr(note, "body") == SECTIONED
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        ({"outline": True, "section": "1"}, "not both"),
+        ({"section": "Missing"}, "no heading 'Missing'"),
+        ({"section": "7"}, "no section 7"),
+    ],
+)
+@respx.mock
+async def test_read_refuses_a_section_it_cannot_name(args: dict[str, Any], message: str) -> None:
+    _mock_note(SECTIONED)
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError, match=message):
+            await client.call_tool("joplin_read", {"note_id": LONG, **args})
+
+
+@respx.mock
+async def test_a_hidden_note_answers_like_a_missing_one_whatever_the_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SBJ_EXCLUDE_NOTEBOOKS", "Root")
+    _mock_note(SECTIONED)
+    respx.get(f"{BASE_URL}/folders").mock(
+        return_value=httpx.Response(
+            200,
+            json={"items": [{"id": "root", "title": "Root", "parent_id": ""}], "has_more": False},
+        )
+    )
+    from second_brain_joplin.server import create_server
+
+    async with Client(create_server()) as client:
+        for args in ({"section": "Budget"}, {"section": "Nope"}, {"outline": True}):
+            with pytest.raises(ToolError, match="not found"):
+                await client.call_tool("joplin_read", {"note_id": LONG, **args})

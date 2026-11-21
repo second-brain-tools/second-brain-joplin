@@ -140,17 +140,21 @@ To cut access at once, do any one of:
 
 ## What a remote client can do
 
-Unless you turn note creation on ([Creating notes](#creating-notes)), every tool
-is read-only toward Joplin, the same over HTTP as over stdio:
+Unless you turn note creation on ([Creating notes](#creating-notes)) or
+changing notes ([Changing notes](#changing-notes)), every tool is read-only
+toward Joplin, the same over HTTP as over stdio:
 
-- **No write tool is registered** until you list where notes may go. A client
-  can't call, or even see, a tool that isn't there.
+- **No write tool is registered** until you list where notes may go or which
+  notes may change. A client can't call, or even see, a tool that isn't there.
 - **Annotations** mark every tool read-only, except `joplin_reindex`, which
-  updates the local search index only (never Joplin, never destructive), and
-  `joplin_create_note`, which is marked as a write that adds and never destroys.
-- **Bounded arguments:** `limit` 1–50 for the searches, 1–100 for
-  `joplin_recent`, `days` 1–3650. Anything outside is refused before Joplin is
-  called.
+  updates the local search index only (never Joplin, never destructive),
+  `joplin_create_note` and `joplin_create_notes`, which are marked as writes
+  that add and never destroy, and `joplin_edit_note` and `joplin_replace_note`,
+  which are marked destructive, because a change can remove text.
+- **Bounded arguments:** `limit` 1–100 for the keyword search, 1–50 for search
+  by meaning, 1–100 for `joplin_recent` (`days` 1–3650) and `joplin_list_notes`,
+  1–20 ids for `joplin_read_notes`, and for `joplin_changes` `days` 1–90 and
+  `limit` 1–200. Anything outside is refused before Joplin is called.
 - **Long notes are read in pages.** Claude caps a tool result near 150,000
   characters, so `joplin_read` returns at most `max_chars` (default 50,000, up to
   100,000) from `offset`, with `total_chars` and `next_offset` for the rest.
@@ -182,6 +186,7 @@ second-brain-joplin notebooks
 ```
 Notebook filter: 3 of 4 notebooks visible.
 Note creation: allowed in the 1 marked writable.
+Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).
 writable  c7d1e5a09b3f4c2d8e6f1a0b9c8d7e6f  Inbox (4)
 hidden    5a1f0c2e9b7d4f63a8e1c0d2b4f6a7c9  Journal (212)
 visible   9c40d1e7a3b24f58b6c9e0f1a2d3b4c5  Work (57)
@@ -190,18 +195,28 @@ visible   0b7e3f9a1c2d4e5f8a7b6c5d4e3f2a1b    Projects (31)
 
 It lists every notebook with its id and note count (hidden ones too: this is
 your own terminal), marked under the settings it was run with: `hidden`,
-`visible`, or `writable` where a note may also be created
-([Creating notes](#creating-notes)). Add `--env-file` to read the settings from
+`visible`, `writable` where a note may also be created
+([Creating notes](#creating-notes)), `editable` where notes may be changed
+([Changing notes](#changing-notes)), or `writable+editable`. Add `--env-file` to read the settings from
 the server's env file.
 
 What a filter changes:
 
 - **`joplin_overview`** lists visible notebooks only. A visible notebook under a
   hidden one moves to the top of the tree, so the hidden parent's name isn't shown.
-- **`joplin_search` and `joplin_recent`** leave hidden notes out, and keep reading
-  Joplin's results until `limit` is filled.
-- **`joplin_read`** answers for a hidden note exactly as it does for a note that
+- **`joplin_list_notes`** answers for a hidden notebook exactly as for one that
   doesn't exist.
+- **`joplin_search` and `joplin_recent`** leave hidden notes out, and keep reading
+  Joplin's results until `limit` is filled (a search, for 20 pages at most). A
+  search's `notebook:` and `-notebook:` words match visible notebooks only, so a
+  hidden notebook answers exactly as one that doesn't exist, even when a
+  sub-notebook of it is visible.
+- **`joplin_read` and `joplin_read_notes`** answer for a hidden note exactly as
+  for a note that doesn't exist. A note's notebook path starts at the topmost
+  visible notebook, so a hidden parent's name isn't shown. A note's attachments
+  are the ones its own text refers to: leaving out one that a hidden note also
+  uses would show that it does. A locked note that the filter hides answers as
+  missing too, though Joplin refuses its text with "locked".
 - **Semantic search** never indexes a hidden note, and drops one that becomes
   hidden (it moved, its notebook moved, or you changed the filter) at the next
   sync. What a search returns doesn't rest on that, though: every search asks
@@ -259,9 +274,16 @@ The server is read-only until you say where notes may go:
 
 With it set, one more tool appears: `joplin_create_note(title, body, notebook)`.
 It adds one new markdown note to a notebook on the list, named by its exact
-title or its id. That is all it can do. It can't change, move or delete a note,
+title or its id. That is all it can do. It can't change, move or delete a note
+(changing one takes `SBJ_EDIT_NOTEBOOKS`: [Changing notes](#changing-notes)),
 and it can't write to a notebook the filter hides. Without the variable the tool
 isn't registered at all.
+
+With `SBJ_CREATE_NOTES_MAX` set too, `joplin_create_notes` creates up to that
+many notes (20 at most, and 100,000 characters in all) in one call. One approval
+then covers every note in the call, so set it only if that is what you want.
+Every note is checked before any is written; writing stops at the first one
+that fails, and the answer says which exist.
 
 A notebook made for the purpose is a good first setting, for example
 `SBJ_WRITE_NOTEBOOKS=Inbox`. `second-brain-joplin notebooks` marks the notebooks
@@ -272,12 +294,14 @@ that can receive notes `writable`.
 You do, in your client, when the client asks. The server can't put its own
 question to you on every client (claude.ai's connector documentation doesn't
 list that part of MCP as supported), so the check on each note is the client's
-approval prompt for the call. That is why the call
+approval prompt for the call (with `joplin_create_notes`, one prompt covers all
+the notes of a call). That is why the call
 carries the whole note in readable form: the notebook by name, the title, the
 text. What you approve is what gets written.
 
 Whether a client asks is up to the client. The server does what it can to make
-Claude's clients ask: it marks `joplin_create_note` with
+Claude's clients ask: it marks every write tool (`joplin_create_note`,
+`joplin_create_notes`, `joplin_edit_note` and `joplin_replace_note`) with
 `"anthropic/requiresUserInteraction": true`, which Claude Code documents as the
 way for a tool to require approval on every call. The table shows what each
 client did when tested in November 2026, with that mark and with the mark left
@@ -290,6 +314,10 @@ tool was on "Needs approval" throughout.
 | A chat on claude.ai | Asked before each note, in Manual and in Auto mode. Not tested with "Always allow" | Not tested |
 | Claude Duet | Shows a prompt with no way to approve it, so no note can be created | Created the note without asking, on the web and in the phone app |
 | Any other client | Not known. Find out how yours treats a tool that isn't read-only before you turn note creation on | Not known |
+
+The table was made with `joplin_create_note`. `joplin_edit_note` carries the
+same mark under the same setting; expect the same, and check it with your
+client before relying on it.
 
 **"Needs approval" is not that check.** Claude's apps give each connector tool
 a permission, under **Customize → Connectors**, on the connector's
@@ -309,7 +337,7 @@ carries the mark. Know what you give up:
 
 - **It applies to every client of that server,** not only the one you did it
   for.
-- **Without the mark, a client treats `joplin_create_note` like any other tool
+- **Without the mark, a client treats the write tools like any other tool
   that writes.** Claude Code follows its ordinary permission rules, so an allow
   rule or "don't ask again" stops it asking. Claude Duet created notes without
   asking at all when tested. Claude's apps in Auto mode can do the same, unless
@@ -317,7 +345,8 @@ carries the mark. Know what you give up:
 - **What the server enforces stays as it is** ([below](#what-the-server-enforces)):
   the listed notebooks only, the size limits, a record of every note, and no
   second copy from a repeat. A note you didn't ask for can land in a notebook
-  you listed. Nothing can be changed, moved or deleted.
+  you listed, and with `SBJ_EDIT_NOTEBOOKS` a note there can be changed without
+  asking you (a copy is still kept first). Nothing is moved or deleted.
 
 Only `0`, `false`, `no` or `off` turns it off. A value that is neither a yes nor
 a no stops the server from starting, so a typo can't pass for either. With note
@@ -366,6 +395,72 @@ to steer an AI could ask it to write more notes. The approval prompt is where yo
 catch that, which is the reason to use a client that asks, and to leave
 `SBJ_ASK_EVERY_TIME` alone unless you need it off.
 
+## Changing notes
+
+The tools that change a note (`joplin_edit_note`, and with `SBJ_REPLACE` the one
+that rewrites a whole note) exist only when `SBJ_EDIT_NOTEBOOKS` lists the
+notebooks whose notes may change. `SBJ_WRITE_NOTEBOOKS` alone never allows a
+change: it has always meant "a new note, and nothing else". A client may have
+no prompt at all (an always-on agent, or `SBJ_ASK_EVERY_TIME=false`), so the
+server's own rules are what make a change safe:
+
+- **Where.** Only notes in a notebook on the edit list, and its sub-notebooks,
+  and never one the filter hides. A hidden note gets the answer a missing one
+  gets, before any other check can answer differently.
+- **Which version.** The call carries the checksum of the text it read
+  (`body_sha256` from `joplin_read`). If the note changed since, nothing is
+  written, so an edit you made in Joplin is never overwritten unseen.
+- **Which note.** The call names the note's current title as well as its id,
+  so a prompt, where the client shows one, says which note will change.
+- **Which notes never.** A note in the trash, a conflict copy, an encrypted
+  note and one that isn't Markdown (a clipped web page) are refused. So is a
+  change that would remove a reference (`:/<id>`) to one of the note's
+  attachments: Joplin deletes an attachment no note refers to.
+- **A copy first.** Before anything is sent to Joplin, the note's title, text
+  and notebook are saved on the server's disk
+  ([`SBJ_UNDO_DIR`](configuration.md#changing-notes), 90 days). If that copy
+  can't be written, nothing is changed. `second-brain-joplin restore` puts a
+  copy back ([the command](configuration.md#second-brain-joplin-restore)).
+- **A daily limit.** `SBJ_CHANGES_PER_DAY` (100) changes a day, all tools and
+  restores together, counted from the copies so a restart doesn't reset it. A
+  change counts unless it is known to have failed; new notes don't count. It
+  resets at the server's local midnight.
+- **Only what it means to change.** Joplin's API changes whatever properties a
+  request carries, so each request carries one: the text, or the title.
+- **One at a time.** Two changes to one note run one after the other, and the
+  second sees what the first did.
+- **No second change from a repeat.** The same call again within ten minutes,
+  while the note still holds what the first left, gets the first answer with
+  `already_applied: true`.
+- **An honest answer when Joplin fails.** If Joplin's answer is lost, the note
+  is read again: the change arrived, it didn't, or it can't be told yet.
+- **A record.** Each change is logged with the tool, the note's id, its
+  notebook's id and the caller, before it goes out and with its outcome. Never
+  the title or text. `joplin_changes` lists what was changed, with no text.
+
+Joplin's own note history isn't relied on for undoing a change: a change made
+through Joplin's API reaches it only every few minutes, and the text from before
+a change is kept as an entry of its own only when the note had been left alone
+for a while. (Checked on Joplin 3.7.24 with
+[the live write checks](../CONTRIBUTING.md#live-write-checks): a change made
+through the API did get one history entry within twelve minutes.)
+
+What the live write checks found on Joplin 3.7.24, and the server relies on:
+
+- Joplin's `PUT /notes/:id` changes exactly the properties it is sent, and
+  applies any it is sent (an extra `author` was saved). That is why each request
+  carries one property and nothing else. The note's title, notebook, author,
+  source and creation times were the same after an edit; `updated_time` and
+  `user_updated_time` moved.
+- `DELETE /notes/:id` without `permanent=1` moves a note to the trash, where it
+  keeps its id and gets a `deleted_time`; a change to it is refused.
+- A note created through the API with `is_conflict` set is not a conflict copy:
+  Joplin drops the flag. Conflict copies come only from sync.
+- Not checked, because it needs a second device or a person: a change made
+  while the server's Joplin is behind another device (expected: one version
+  goes to Joplin's Conflicts notebook after the tool has said it worked), and an
+  editor open on the note when it changes.
+
 ## Limits and logs
 
 - **Rate limit:** `SBJ_RATE_LIMIT_PER_MINUTE` tool calls per minute per GitHub
@@ -374,7 +469,9 @@ catch that, which is the reason to use a client that asks, and to leave
   the call is refused with "Rate limit exceeded".
 - **Semantic search** runs at most two queries at a time, so a burst can't tie
   up the embedding model.
-- **Logs** go to stderr, one line per tool call:
+- **Logs** go to stderr, one line per tool call. A failed call names what
+  failed by its class name, such as `outcome=error:JoplinNotFoundError` or
+  `outcome=error:JoplinUnavailableError` (Joplin not answering):
 
   ```
   2026-11-11 16:40:02,113 INFO second_brain_joplin.audit: tool=joplin_search caller=65598 outcome=ok ms=41
@@ -514,7 +611,13 @@ Cowork. Free accounts can add one custom connector.
 | `SBJ_NOTEBOOKS` | none | Only these notebooks (ids or titles, comma-separated) are visible |
 | `SBJ_EXCLUDE_NOTEBOOKS` | none | These notebooks are hidden |
 | `SBJ_WRITE_NOTEBOOKS` | none (read-only) | Notes may be created in these notebooks; `*` = every visible one |
-| `SBJ_ASK_EVERY_TIME` | `true` | `false` leaves off the mark that asks Claude's clients to check with you before each note |
+| `SBJ_EDIT_NOTEBOOKS` | none (no changes) | Notes in these notebooks may be changed; `*` = every visible one |
+| `SBJ_REPLACE` | `false` | `true` adds the tool that rewrites a whole note |
+| `SBJ_UNDO_DIR` / `SBJ_UNDO_DAYS` / `SBJ_UNDO_MAX_MB` | see [configuration](configuration.md#changing-notes) / `90` / `500` | The copies kept before each change |
+| `SBJ_CHANGES_PER_DAY` | `100` | The most changes in a day |
+| `SBJ_CREATE_NOTES_MAX` | `0` (off) | Up to this many notes (at most 20) in one call of `joplin_create_notes` |
+| `SBJ_ASK_EVERY_TIME` | `true` | `false` leaves off the mark that asks Claude's clients to check with you before each note or change |
+| `SBJ_JOPLIN_TIMEOUT` / `SBJ_JOPLIN_CONNECT_TIMEOUT` | `10` / `3` | Seconds Joplin has to answer, and to accept the connection |
 | `SBJ_RATE_LIMIT_PER_MINUTE` | `60` | Tool calls per caller; 0 = off |
 | `SBJ_SYNC_INTERVAL_MINUTES` | `15` | Background index sync; 0 = off |
 

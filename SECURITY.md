@@ -78,10 +78,21 @@ public issue. We aim to acknowledge reports within a few days.
   It filters by notebook: a visible note that quotes a hidden one still shows
   what it quotes.
 - **No silent writes.** The server is read-only until you list where notes may
-  be created (`SBJ_WRITE_NOTEBOOKS`); without it no write tool is registered and
-  a client can't see one. With it, `joplin_create_note` adds a new note to those
-  notebooks and does nothing else: it can't edit, move or delete, and it can't
-  write to a notebook the filter hides. The check on each note is your client's
+  be created (`SBJ_WRITE_NOTEBOOKS`) or changed (`SBJ_EDIT_NOTEBOOKS`); without
+  them no write tool is registered and a client can't see one. With the first,
+  `joplin_create_note` adds a new note to those notebooks and does nothing
+  else. With the second, `joplin_edit_note` changes notes in those notebooks
+  (and with `SBJ_REPLACE`, `joplin_replace_note` rewrites a whole one), never
+  in a notebook the filter hides. A change always carries the checksum of
+  the text it was made on, so a note changed since is never overwritten; before
+  each change the server keeps a copy of the note on its own disk (no copy, no
+  change), and `second-brain-joplin restore` puts it back; no more than
+  `SBJ_CHANGES_PER_DAY` changes are made in a day; a change that would drop a
+  reference to an attachment is refused; `joplin_changes` lists what was
+  changed ([Changing notes](docs/remote-access.md#changing-notes)). Nothing
+  moves or deletes a note. With `SBJ_CREATE_NOTES_MAX`, `joplin_create_notes`
+  creates several notes in one call, so one approval covers them all. The check
+  on each call is your client's
   approval prompt, and the call carries the note in readable form so the prompt
   shows what will be written. Whether a client asks is the client's decision.
   The server marks the tool to ask Claude's clients to put every call to a
@@ -91,14 +102,26 @@ public issue. We aim to acknowledge reports within a few days.
   ask", where an account has it, is the only per-tool setting that asks in
   every mode. `SBJ_ASK_EVERY_TIME=false`
   leaves the mark off, for a client whose prompt for a marked tool can't be
-  answered. Notes can then be created in the listed notebooks without asking
-  you, so set it only if you accept that
+  answered. Notes can then be created in the listed notebooks, and with
+  `SBJ_EDIT_NOTEBOOKS` changed, without asking you, so set it only if you
+  accept that
   ([Who confirms each note](docs/remote-access.md#who-confirms-each-note)).
   The server can't ask you itself on every client, so it doesn't claim to:
   it limits where a note can land, logs each attempt by id, and returns the note
   already made when the same request is repeated within ten minutes
   ([Creating notes](docs/remote-access.md#creating-notes)). The semantic tools
   only read from Joplin and write to a local index (below).
+
+### Kept copies of changed notes
+
+With `SBJ_EDIT_NOTEBOOKS` set, the server keeps the full title, text and
+notebook of each note before every change, in `SBJ_UNDO_DIR` (by default under
+your XDG data directory; the folder mode 0700 and each file 0600 where the
+system has modes). The copies are **plaintext, unencrypted** note text: treat
+the folder as sensitive as the notes themselves. They are kept for at least
+`SBJ_UNDO_DAYS` (90) days within `SBJ_UNDO_MAX_MB` (500), removed when a later
+change is applied, and they can't be switched off: they are how a change is
+undone (`second-brain-joplin restore`).
 
 ### Semantic search
 

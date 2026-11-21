@@ -261,6 +261,36 @@ async def test_healthz_joplin_down(failure: Exception) -> None:
     assert response.json() == {"server": True, "joplin": False}
 
 
+@pytest.mark.parametrize("raw", ["soon", "0", "-1"])
+@respx.mock
+async def test_healthz_answers_with_an_unreadable_timeout(
+    raw: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It reads the settings on every request: a bad value must not break it."""
+    respx.get(f"{BASE_URL}/ping").mock(return_value=httpx.Response(200, text="JoplinClipperServer"))
+    async with serving(HttpOptions(no_auth=True)) as running, raw_client(running) as http:
+        monkeypatch.setenv("SBJ_JOPLIN_TIMEOUT", raw)
+        response = await http.get("/healthz")
+    assert response.status_code == 200
+    assert response.json() == {"server": True, "joplin": True}
+
+
+@pytest.mark.parametrize("hold", [False, True])
+@respx.mock
+async def test_healthz_asks_joplin_every_time_whatever_the_tools_learned(hold: bool) -> None:
+    """It has a client of its own, so it never answers from the tools' hold."""
+    ping = respx.get(f"{BASE_URL}/ping").mock(side_effect=httpx.ReadTimeout("slow"))
+    respx.get(f"{BASE_URL}/folders").mock(side_effect=httpx.ReadTimeout("slow"))
+    async with serving(HttpOptions(no_auth=True)) as running:
+        if hold:
+            async with running.client() as client:
+                await client.call_tool("joplin_overview", {}, raise_on_error=False)
+        ping.mock(return_value=httpx.Response(200, text="JoplinClipperServer"))
+        async with raw_client(running) as http:
+            response = await http.get("/healthz")
+    assert response.json() == {"server": True, "joplin": True}
+
+
 @respx.mock
 async def test_unknown_host_header_is_refused() -> None:
     respx.get(f"{BASE_URL}/ping").mock(return_value=httpx.Response(200, text="JoplinClipperServer"))

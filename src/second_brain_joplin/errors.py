@@ -24,6 +24,15 @@ class JoplinConnectionError(JoplinError):
         self.maybe_sent = maybe_sent
 
 
+class JoplinUnavailableError(JoplinConnectionError):
+    """Joplin accepts connections and doesn't answer: a request timed out.
+
+    Also raised, without sending anything, for the requests that come while the
+    client holds off after such a timeout (joplin_client.py), so each doesn't
+    wait out the timeout again. The message is the same in both cases.
+    """
+
+
 class JoplinAuthError(JoplinError):
     """Joplin rejected the request — missing or invalid API token."""
 
@@ -48,8 +57,8 @@ class JoplinAPIError(JoplinError):
 
 NOTEBOOK_FILTER_MESSAGE = (
     "The server's notebook settings (SBJ_NOTEBOOKS, SBJ_EXCLUDE_NOTEBOOKS, "
-    "SBJ_WRITE_NOTEBOOKS) don't match Joplin's notebooks, so this is refused until "
-    "they are fixed. On the server's machine, `second-brain-joplin notebooks` "
+    "SBJ_WRITE_NOTEBOOKS, SBJ_EDIT_NOTEBOOKS) don't match Joplin's notebooks, so this "
+    "is refused until they are fixed. On the server's machine, `second-brain-joplin notebooks` "
     "shows what is wrong."
 )
 

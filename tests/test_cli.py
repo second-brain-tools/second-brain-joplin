@@ -40,6 +40,10 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "SBJ_EXCLUDE_NOTEBOOKS",
         "SBJ_WRITE_NOTEBOOKS",
         "SBJ_ASK_EVERY_TIME",
+        "SBJ_EDIT_NOTEBOOKS",
+        "SBJ_REPLACE",
+        "SBJ_JOPLIN_TIMEOUT",
+        "SBJ_JOPLIN_CONNECT_TIMEOUT",
     ):
         monkeypatch.setenv(name, "")
         monkeypatch.delenv(name)
@@ -251,6 +255,7 @@ def test_notebooks_command_lists_ids_counts_and_visibility(
     assert capsys.readouterr().out.splitlines() == [
         "Notebook filter: 2 of 3 notebooks visible.",
         "Note creation: off (SBJ_WRITE_NOTEBOOKS is not set).",
+        "Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).",
         f"hidden    {ids['Journal']}  Journal (3)",
         f"visible   {ids['Work']}  Work (2)",
         f"visible   {ids['Projects']}    Projects (1)",
@@ -267,6 +272,7 @@ def test_notebooks_command_marks_where_notes_may_be_created(
     assert capsys.readouterr().out.splitlines() == [
         "Notebook filter: 2 of 3 notebooks visible.",
         "Note creation: allowed in the 1 marked writable.",
+        "Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).",
         f"hidden    {ids['Journal']}  Journal (3)",
         f"visible   {ids['Work']}  Work (2)",
         f"writable  {ids['Projects']}    Projects (1)",
@@ -309,7 +315,8 @@ def test_notebooks_command_without_a_filter_says_everything_is_visible(
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == "No notebook filter is set: all 3 notebooks are visible."
     assert lines[1] == "Note creation: off (SBJ_WRITE_NOTEBOOKS is not set)."
-    assert [line.split()[0] for line in lines[2:]] == ["visible"] * 3
+    assert lines[2] == "Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set)."
+    assert [line.split()[0] for line in lines[3:]] == ["visible"] * 3
 
 
 def test_notebooks_command_with_a_wrong_filter_shows_the_ids_and_the_reason(
@@ -587,7 +594,7 @@ def test_notebooks_command_lists_notebooks_that_contain_each_other(
     assert out.splitlines()[0] == "Notebook filter: 2 of 5 notebooks visible."
     # Untraceable, so hidden under an exclude list; listed once each all the same.
     assert out.count(f"hidden    {a}") == 1 and out.count(f"hidden    {b}") == 1
-    assert len(out.splitlines()) == 2 + 5
+    assert len(out.splitlines()) == 3 + 5
 
 
 # -- SBJ_ASK_EVERY_TIME ----------------------------------------------------------
@@ -676,6 +683,7 @@ def test_notebooks_command_says_when_ask_every_time_is_off(
         "No notebook filter is set: all 3 notebooks are visible.",
         "Note creation: allowed in the 1 marked writable.",
         "Asking before each note: left to the client (SBJ_ASK_EVERY_TIME is off).",
+        "Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).",
         f"visible   {ids['Journal']}  Journal (3)",
         f"visible   {ids['Work']}  Work (2)",
         f"writable  {ids['Projects']}    Projects (1)",
@@ -735,3 +743,61 @@ def test_ask_every_time_follows_the_usual_order_of_environment_then_env_file(
     monkeypatch.setenv("SBJ_ASK_EVERY_TIME", exported)
     cli.load_env_file(env_file)
     assert Settings.from_env().ask_every_time is asks
+
+
+# -- SBJ_JOPLIN_TIMEOUT and SBJ_JOPLIN_CONNECT_TIMEOUT (#86) -------------------------
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["serve"], ["serve", "--transport", "http", "--no-auth"], ["reindex"], ["notebooks"]],
+    ids=["stdio", "http", "reindex", "notebooks"],
+)
+def test_every_command_refuses_an_unreadable_timeout_before_asking_joplin(
+    argv: list[str],
+    joplin: FakeJoplin,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    http_calls: list[HttpOptions],
+) -> None:
+    monkeypatch.setattr(FastMCP, "run", lambda *a, **k: pytest.fail("the server must not start"))
+    monkeypatch.setenv("SBJ_JOPLIN_TIMEOUT", "ten")
+    monkeypatch.setenv("SBJ_JOPLIN_CONNECT_TIMEOUT", "0")
+    with pytest.raises(SystemExit) as exc:
+        cli.main(argv)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "SBJ_JOPLIN_TIMEOUT must be a number of seconds above 0, got 'ten'" in err
+    assert "SBJ_JOPLIN_CONNECT_TIMEOUT must be a number of seconds above 0, got '0'" in err
+    assert http_calls == []
+    assert joplin.requests == []
+
+
+def test_an_unreadable_switch_and_timeout_are_reported_together(
+    joplin: FakeJoplin, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("SBJ_ASK_EVERY_TIME", "flase")
+    monkeypatch.setenv("SBJ_JOPLIN_TIMEOUT", "-1")
+    with pytest.raises(SystemExit):
+        cli.main(["notebooks"])
+    err = capsys.readouterr().err
+    assert "SBJ_ASK_EVERY_TIME must be true or false" in err
+    assert "SBJ_JOPLIN_TIMEOUT must be a number of seconds above 0" in err
+
+
+def test_notebooks_command_marks_where_notes_may_be_changed(
+    joplin: FakeJoplin, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ids = _ids_by_title(joplin)
+    monkeypatch.setenv("SBJ_WRITE_NOTEBOOKS", "Work")
+    monkeypatch.setenv("SBJ_EDIT_NOTEBOOKS", "Projects")
+    monkeypatch.setenv("SBJ_REPLACE", "yes")
+    cli.main(["notebooks"])
+    assert capsys.readouterr().out.splitlines() == [
+        "No notebook filter is set: all 3 notebooks are visible.",
+        "Note creation: allowed in the 2 marked writable.",
+        "Changing notes: allowed in the 1 marked editable, replacing whole notes too.",
+        f"visible            {ids['Journal']}  Journal (3)",
+        f"writable           {ids['Work']}  Work (2)",
+        f"writable+editable  {ids['Projects']}    Projects (1)",
+    ]

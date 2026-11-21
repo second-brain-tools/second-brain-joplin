@@ -6,6 +6,7 @@ import pytest
 
 from second_brain_joplin.config import (
     DEFAULT_BASE_URL,
+    DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_EMBEDDING_BACKEND,
     DEFAULT_TIMEOUT,
     DEFAULT_VECTOR_STORE,
@@ -42,6 +43,8 @@ def test_defaults() -> None:
     assert settings.writes_enabled is False
     assert settings.ask_every_time is True
     assert settings.unreadable_switches == ()
+    assert settings.connect_timeout == DEFAULT_CONNECT_TIMEOUT
+    assert settings.unreadable_numbers == ()
 
 
 def test_trailing_slash_is_stripped() -> None:
@@ -216,3 +219,49 @@ def test_auto_sync_parsing_is_unchanged_by_the_stricter_switch(
     settings = Settings.from_env()
     assert settings.semantic_auto_sync is False
     assert settings.unreadable_switches == ()
+
+
+# -- SBJ_JOPLIN_TIMEOUT and SBJ_JOPLIN_CONNECT_TIMEOUT (#86) -------------------------
+
+TIMEOUT_VARS = ("SBJ_JOPLIN_TIMEOUT", "SBJ_JOPLIN_CONNECT_TIMEOUT")
+
+
+@pytest.mark.parametrize("raw", [None, "", "  "])
+def test_the_timeouts_default_when_unset_or_empty(
+    monkeypatch: pytest.MonkeyPatch, raw: str | None
+) -> None:
+    for name in TIMEOUT_VARS:
+        if raw is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, raw)
+    settings = Settings.from_env()
+    assert (settings.request_timeout, settings.connect_timeout) == (10.0, 3.0)
+    assert settings.unreadable_numbers == ()
+
+
+def test_the_timeouts_are_read_as_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SBJ_JOPLIN_TIMEOUT", "25")
+    monkeypatch.setenv("SBJ_JOPLIN_CONNECT_TIMEOUT", " 0.5 ")
+    settings = Settings.from_env()
+    assert (settings.request_timeout, settings.connect_timeout) == (25.0, 0.5)
+    assert settings.unreadable_numbers == ()
+
+
+@pytest.mark.parametrize("raw", ["0", "-3", "ten", "nan", "inf", "1e999"])
+@pytest.mark.parametrize("name", TIMEOUT_VARS)
+def test_a_timeout_that_is_not_a_positive_number_keeps_its_default_and_is_reported(
+    monkeypatch: pytest.MonkeyPatch, name: str, raw: str
+) -> None:
+    for other in TIMEOUT_VARS:
+        monkeypatch.delenv(other, raising=False)
+    monkeypatch.setenv(name, raw)
+    settings = Settings.from_env()  # never raises: /healthz reads it on every request
+    assert (settings.request_timeout, settings.connect_timeout) == (10.0, 3.0)
+    assert settings.unreadable_numbers == (name,)
+
+
+def test_both_timeouts_unreadable_are_both_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SBJ_JOPLIN_TIMEOUT", "x")
+    monkeypatch.setenv("SBJ_JOPLIN_CONNECT_TIMEOUT", "y")
+    assert Settings.from_env().unreadable_numbers == TIMEOUT_VARS

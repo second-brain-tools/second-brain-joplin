@@ -4,21 +4,38 @@ import argparse
 import asyncio
 import logging
 import os
+import time
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 
 from dotenv import dotenv_values
+from fastmcp.exceptions import ToolError
 
 from . import __version__
 from .audit import configure_logging
 from .auth import AuthSettings, build_auth
-from .config import Settings
+from .changes import references, refuse_kind, sha256
+from .config import (
+    CONNECT_TIMEOUT_VAR,
+    CREATE_NOTES_CEILING,
+    CREATE_NOTES_MAX_VAR,
+    TIMEOUT_VAR,
+    Settings,
+)
 from .context import AppContext
 from .errors import JoplinError, NotebookFilterError, SemanticUnavailableError
 from .joplin_client import JoplinClient, JsonDict
+from .journal import Journal, JournalError
 from .remote import ServeConfigError, http_options, run_http, validate
-from .scope import NotebookScope, WriteTargets, check_at_startup, scope_of, write_targets_of
+from .scope import (
+    NotebookScope,
+    WriteTargets,
+    check_at_startup,
+    edit_targets_of,
+    scope_of,
+    write_targets_of,
+)
 from .semantic.types import SyncStats
 from .server import create_server
 
@@ -95,7 +112,98 @@ def build_parser() -> argparse.ArgumentParser:
     notebooks.add_argument(
         "--env-file", type=Path, help="load settings from this file first (set variables win)"
     )
+    restore = subparsers.add_parser(
+        "restore",
+        help="List a note's kept copies, or put one back.",
+        description=(
+            "Before every change, the server keeps a copy of the note as it was "
+            "(SBJ_UNDO_DIR). With a note's id alone this lists those copies, newest "
+            "first, without their text; --pick N puts copy N back (its text, and its "
+            "title if that changed). The restore is kept as a change of its own, so it "
+            "can be undone the same way. Needs Joplin Desktop running."
+        ),
+    )
+    restore.add_argument("note_id", help="the note's 32-character id")
+    restore.add_argument("--pick", type=int, metavar="N", help="put copy N of the list back")
+    restore.add_argument(
+        "--force",
+        action="store_true",
+        help="restore even if the copy doesn't refer to an attachment the note now has",
+    )
+    restore.add_argument(
+        "--env-file", type=Path, help="load settings from this file first (set variables win)"
+    )
     return parser
+
+
+async def run_restore(settings: Settings, note_id: str, pick: int | None, force: bool) -> str:
+    """List a note's kept copies, or put one back. Returns what to print."""
+    journal = Journal(settings.undo_dir, days=settings.undo_days, max_mb=settings.undo_max_mb)
+    copies = journal.copies_of(note_id)
+    if not copies:
+        if pick is not None:
+            raise ServeConfigError(f"no kept copies of {note_id} in {settings.undo_dir}")
+        return f"No kept copies of {note_id} in {settings.undo_dir}."
+    if pick is None:
+        lines = [f"Kept copies of {note_id}, newest first (in {settings.undo_dir}):"]
+        for number, entry in enumerate(copies, start=1):
+            when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(entry.at))
+            lines.append(
+                f"  {number:>3}  {when}  before {entry.tool}  {entry.old_chars:>7} characters"
+                f"  ({entry.outcome})"
+            )
+        lines.append("Put one back with --pick N.")
+        return "\n".join(lines)
+    if not 1 <= pick <= len(copies):
+        raise ServeConfigError(f"--pick takes 1 to {len(copies)}")
+    chosen = copies[pick - 1]
+    client = JoplinClient(settings)
+    try:
+        note = await client.get_note(note_id)
+        try:
+            refuse_kind(note)
+        except ToolError as exc:
+            raise ServeConfigError(str(exc)) from exc
+        attached = [r["id"] for r in await client.get_note_resources(note_id)]
+        dropped = [r for r in attached if r.lower() not in references(chosen.old_body)]
+        if dropped and not force:
+            raise ServeConfigError(
+                f"copy {pick} doesn't refer to {len(dropped)} attachment(s) the note has now, "
+                "and Joplin deletes an attachment no note refers to; add --force to restore anyway"
+            )
+        body = str(note.get("body", ""))
+        kept = journal.record(
+            tool="restore",
+            caller="command line",
+            note=note,
+            new_chars=len(chosen.old_body),
+            old_sha256=sha256(body),
+            new_sha256=sha256(chosen.old_body),
+        )
+        try:
+            if chosen.old_body != body:
+                await client.update_note(note_id, body=chosen.old_body)
+            if chosen.old_title and chosen.old_title != note.get("title", ""):
+                await client.update_note(note_id, title=chosen.old_title)
+        except JoplinError:
+            journal.settle(kept, "unconfirmed")
+            raise
+        journal.settle(kept, "applied")
+    finally:
+        await client.aclose()
+    return (
+        f"Restored copy {pick} of {note_id} ({chosen.old_chars} characters). "
+        "What it replaced is kept as the newest copy."
+    )
+
+
+def restore(args: argparse.Namespace) -> None:
+    settings = Settings.from_env()
+    refuse_unreadable_settings(settings)
+    try:
+        print(asyncio.run(run_restore(settings, args.note_id.lower(), args.pick, args.force)))
+    except JournalError as exc:
+        raise ServeConfigError(f"the journal couldn't be written: {exc.detail}") from exc
 
 
 async def run_reindex(full: bool) -> SyncStats:
@@ -109,6 +217,7 @@ async def run_reindex(full: bool) -> SyncStats:
 
 
 def reindex(args: argparse.Namespace) -> None:
+    refuse_unreadable_settings(Settings.from_env())
     stats = asyncio.run(run_reindex(args.full))
     print(
         f"added={stats.added} updated={stats.updated} deleted={stats.deleted} "
@@ -130,14 +239,17 @@ def notebook_lines(
     notes_index: list[JsonDict],
     scope: NotebookScope | None,
     targets: WriteTargets | None = None,
+    editable: WriteTargets | None = None,
 ) -> list[str]:
     """One line per notebook, as an indented tree: mark, id, title and note count.
 
     Every notebook is listed, hidden ones too: this is the operator's own view.
     The mark is ``writable`` (visible, and a note may be created there),
-    ``visible`` or ``hidden``. ``scope`` is None when the settings don't resolve,
-    and the mark is then ``?``.
+    ``editable`` (its notes may be changed), ``writable+editable``, ``visible`` or
+    ``hidden``. ``scope`` is None when the settings don't resolve, and the mark is
+    then ``?``.
     """
+    width = 17 if editable is not None and editable.titles else 8
     counts: dict[str, int] = {}
     for note in notes_index:
         parent = note.get("parent_id", "")
@@ -156,15 +268,21 @@ def notebook_lines(
             if folder["id"] in listed:  # notebooks that contain each other
                 continue
             listed.add(folder["id"])
+            writable = targets is not None and targets.title_of(folder["id"]) is not None
+            changeable = editable is not None and editable.title_of(folder["id"]) is not None
             if scope is None:
                 mark = "?"
-            elif targets is not None and targets.title_of(folder["id"]) is not None:
+            elif writable and changeable:
+                mark = "writable+editable"
+            elif writable:
                 mark = "writable"
+            elif changeable:
+                mark = "editable"
             else:
                 mark = "visible" if scope.allows(folder["id"]) else "hidden"
             title = folder.get("title", "")
             count = counts.get(folder["id"], 0)
-            lines.append(f"{mark:<8}  {folder['id']}  {'  ' * depth}{title} ({count})")
+            lines.append(f"{mark:<{width}}  {folder['id']}  {'  ' * depth}{title} ({count})")
             walk(folder["id"], depth + 1)
 
     walk("", 0)
@@ -185,27 +303,39 @@ async def fetch_notebooks(settings: Settings) -> tuple[list[JsonDict], list[Json
         await client.aclose()
 
 
-def refuse_unreadable_switches(settings: Settings) -> None:
-    """Refuse a yes-or-no setting whose value is neither.
+def _number_problem(name: str) -> str:
+    """What a number setting that can't be read should have been."""
+    got = os.environ.get(name, "")
+    if name in (TIMEOUT_VAR, CONNECT_TIMEOUT_VAR):
+        return f"{name} must be a number of seconds above 0, got {got!r}"
+    if name == CREATE_NOTES_MAX_VAR:
+        return f"{name} must be a whole number from 0 to {CREATE_NOTES_CEILING}, got {got!r}"
+    return f"{name} must be a whole number of at least 1, got {got!r}"
 
-    The setting itself stays on (config.py), so a typo exposes nothing. Refusing
-    is so the operator finds out that the value didn't do what they meant.
+
+def refuse_unreadable_settings(settings: Settings) -> None:
+    """Refuse a setting whose value can't be read: a switch or a number of seconds.
+
+    The setting itself keeps its safe value (config.py): a switch stays on, a
+    timeout keeps its default, so a typo exposes nothing. Refusing is so the
+    operator finds out that the value didn't do what they meant.
     """
-    if settings.unreadable_switches:
-        problems = "; ".join(
-            f"{name} must be true or false, got {os.environ.get(name, '')!r}"
-            for name in settings.unreadable_switches
-        )
-        raise ServeConfigError(problems)
+    problems = [
+        f"{name} must be true or false, got {os.environ.get(name, '')!r}"
+        for name in settings.unreadable_switches
+    ] + [_number_problem(name) for name in settings.unreadable_numbers]
+    if problems:
+        raise ServeConfigError("; ".join(problems))
 
 
 def notebooks(_args: argparse.Namespace) -> None:
     settings = Settings.from_env()
-    refuse_unreadable_switches(settings)
+    refuse_unreadable_settings(settings)
     folders, notes_index = asyncio.run(fetch_notebooks(settings))
     try:
         scope = scope_of(settings, folders)
         targets = write_targets_of(settings, folders)
+        editable = edit_targets_of(settings, folders)
     except NotebookFilterError:
         # Show the tree anyway: its ids are what fixes the settings.
         print("\n".join(notebook_lines(folders, notes_index, None)))
@@ -220,7 +350,12 @@ def notebooks(_args: argparse.Namespace) -> None:
             print("Asking before each note: left to the client (SBJ_ASK_EVERY_TIME is off).")
     else:
         print("Note creation: off (SBJ_WRITE_NOTEBOOKS is not set).")
-    print("\n".join(notebook_lines(folders, notes_index, scope, targets)))
+    if settings.edits_enabled:
+        replace = ", replacing whole notes too" if settings.replace else ""
+        print(f"Changing notes: allowed in the {len(editable.titles)} marked editable{replace}.")
+    else:
+        print("Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).")
+    print("\n".join(notebook_lines(folders, notes_index, scope, targets, editable)))
 
 
 def _apply_env(values: Mapping[str, str | None]) -> None:
@@ -285,7 +420,7 @@ def serve(args: argparse.Namespace) -> None:
     transport = args.transport or os.environ.get("SBJ_TRANSPORT") or "stdio"
     if transport not in TRANSPORTS:
         raise ServeConfigError(f"SBJ_TRANSPORT must be one of {', '.join(TRANSPORTS)}")
-    refuse_unreadable_switches(Settings.from_env())
+    refuse_unreadable_settings(Settings.from_env())
     if transport == "stdio":
         http_only = [
             flag
@@ -355,6 +490,8 @@ def main(argv: list[str] | None = None) -> None:
             reindex(args)
         elif args.command == "notebooks":
             notebooks(args)
+        elif args.command == "restore":
+            restore(args)
     except ServeConfigError as exc:
         parser.exit(2, f"{parser.prog}: error: {exc}\n")
     except NotebookFilterError as exc:
