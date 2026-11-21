@@ -61,9 +61,16 @@ class FakeVectorIndex:
     def __init__(self) -> None:
         self.model_name = ""
         self._records: dict[str, ChunkRecord] = {}
+        self._empty: dict[str, str] = {}
 
     def note_versions(self) -> dict[str, str]:
         return {r.note_id: r.updated_time for r in self._records.values()}
+
+    def empty_versions(self) -> dict[str, str]:
+        return dict(self._empty)
+
+    def mark_empty(self, note_id: str, version: str) -> None:
+        self._empty[note_id] = version
 
     def stored_text(self) -> str:
         """Everything a reader of the index could find in it: titles and chunk text."""
@@ -72,10 +79,12 @@ class FakeVectorIndex:
     def upsert(self, records: list[ChunkRecord]) -> None:
         for record in records:
             self._records[record.chunk_id] = record
+            self._empty.pop(record.note_id, None)
 
     def delete_notes(self, note_ids: list[str]) -> None:
         drop = set(note_ids)
         self._records = {cid: r for cid, r in self._records.items() if r.note_id not in drop}
+        self._empty = {nid: v for nid, v in self._empty.items() if nid not in drop}
 
     def query(self, embedding: list[float], k: int) -> list[QueryHit]:
         scored = [
@@ -94,6 +103,7 @@ class FakeVectorIndex:
     def reset(self, model_name: str) -> None:
         self.model_name = model_name
         self._records = {}
+        self._empty = {}
 
 
 class SharedVectorIndex(FakeVectorIndex):

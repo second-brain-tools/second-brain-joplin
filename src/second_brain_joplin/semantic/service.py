@@ -20,6 +20,7 @@ visible now and returns only those, whatever the index holds.
 """
 
 import asyncio
+from enum import Enum
 
 from ..config import Settings
 from ..joplin_client import JoplinClient
@@ -35,6 +36,14 @@ _QUERY_OVERFETCH = 4
 
 # Semantic searches that may embed and query at the same time.
 SEARCH_CONCURRENCY = 2
+
+
+class _Embedded(Enum):
+    """What became of one note a sync looked at."""
+
+    TEXT = "text"  # its chunks are in the index
+    EMPTY = "empty"  # it has no text: marked, so the next sync leaves it alone
+    HIDDEN = "hidden"  # the filter hides it now: nothing kept
 
 
 class SemanticSearchService:
@@ -73,12 +82,17 @@ class SemanticSearchService:
             return await self._drop_missing(current)
 
     async def _drop_missing(self, current: dict[str, str]) -> int:
-        """Remove from the index every note that isn't in ``current``. Call with the lock."""
+        """Remove from the index every note that isn't in ``current``. Call with the lock.
+
+        Returns how many notes with text left; marks of notes with no text are
+        dropped too, uncounted.
+        """
         indexed = await asyncio.to_thread(self._index.note_versions)
-        gone = [note_id for note_id in indexed if note_id not in current]
+        empty = await asyncio.to_thread(self._index.empty_versions)
+        gone = [note_id for note_id in {**empty, **indexed} if note_id not in current]
         if gone:
             await asyncio.to_thread(self._index.delete_notes, gone)
-        return len(gone)
+        return sum(1 for note_id in gone if note_id in indexed)
 
     async def _visible_versions(self) -> tuple[NotebookScope, dict[str, str]]:
         """The scope as of now, and id → version for every note it lets through."""
@@ -99,10 +113,15 @@ class SemanticSearchService:
         if full or self._index.model_name != model:
             await asyncio.to_thread(self._index.reset, model)
             indexed: dict[str, str] = {}
+            empty: dict[str, str] = {}
         else:
             indexed = await asyncio.to_thread(self._index.note_versions)
+            empty = await asyncio.to_thread(self._index.empty_versions)
 
-        plan = diff_versions(current, indexed)
+        # A note with no text was looked at once for its version and marked, so
+        # it isn't fetched again until it changes. The counts below are about
+        # notes with text in the index: a mark is never counted.
+        plan = diff_versions(current, {**empty, **indexed})
 
         # Drop before embedding: a note that is now hidden must leave the index
         # even if an embedding below fails.
@@ -112,37 +131,40 @@ class SemanticSearchService:
         added = 0
         updated = 0
         for note_id in plan.changed_ids:
-            if not await self._embed_note(note_id, current[note_id], scope):
-                continue
+            outcome = await self._embed_note(note_id, current[note_id], scope)
             if note_id in indexed:
-                updated += 1
-            else:
+                # Its text changed, or it was emptied: either way its entry did.
+                if outcome is not _Embedded.HIDDEN:
+                    updated += 1
+            elif outcome is _Embedded.TEXT:  # new, or a note with no text gained some
                 added += 1
 
         stats = SyncStats(
             added=added,
             updated=updated,
-            deleted=len(plan.deleted_ids),
+            deleted=sum(1 for note_id in plan.deleted_ids if note_id in indexed),
             total=len(current),
             model_name=model,
         )
         return stats, set(current)
 
-    async def _embed_note(self, note_id: str, version: str, scope: NotebookScope) -> bool:
-        """(Re)embed one note; False if it turned out to be hidden and was left out."""
+    async def _embed_note(self, note_id: str, version: str, scope: NotebookScope) -> _Embedded:
+        """(Re)embed one note, or mark it as having no text, or leave it out if hidden."""
         note = await self._client.get_note(note_id)
 
-        # Drop any stale chunks first so a note that shrank leaves nothing behind.
+        # Drop any stale chunks (and mark) first so a note that shrank leaves
+        # nothing behind.
         await asyncio.to_thread(self._index.delete_notes, [note_id])
         # The listing said this note was visible; it may have moved since. What is
         # embedded is decided by the notebook the text was actually read from.
         if not scope.allows_note(note):
-            return False
+            return _Embedded.HIDDEN
 
         title = note.get("title", "")
         chunks = chunk_note(title, note.get("body", ""))
         if not chunks:
-            return True
+            await asyncio.to_thread(self._index.mark_empty, note_id, version)
+            return _Embedded.EMPTY
 
         embeddings = await asyncio.to_thread(self._embedder.embed_documents, chunks)
         records = [
@@ -158,7 +180,7 @@ class SemanticSearchService:
             for i, (text, embedding) in enumerate(zip(chunks, embeddings, strict=True))
         ]
         await asyncio.to_thread(self._index.upsert, records)
-        return True
+        return _Embedded.TEXT
 
     async def _visible_for_search(self) -> set[str] | None:
         """Bring the index up to date for a search; the visible note ids, or None for all.

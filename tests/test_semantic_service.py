@@ -199,17 +199,168 @@ async def test_search_dedupes_chunks_to_one_result_per_note() -> None:
     assert [r.id for r in results] == ["a"]  # single deduped result
 
 
-@respx.mock
-async def test_empty_body_note_adds_no_chunks() -> None:
-    vault = Vault()
-    vault.set("a", "Title only", "   ", 100)
-    vault.install()
+# -- notes with no text (#87) ------------------------------------------------------
 
+
+def _empty_note_vault() -> tuple[FakeJoplin, str, str]:
+    """One notebook with a note that has a title and no text: (joplin, notebook, note)."""
+    joplin = FakeJoplin()
+    notebook = joplin.notebook("Work")
+    note = joplin.note("Title only", "   ", notebook)
+    joplin.install()
+    return joplin, notebook, note
+
+
+@respx.mock
+async def test_a_note_with_no_text_is_marked_not_counted() -> None:
+    joplin, _notebook, note = _empty_note_vault()
     index = FakeVectorIndex()
     stats = await _service(index=index).sync()
-    assert stats.added == 1  # counted as processed
-    assert index.note_versions() == {}  # but no chunks stored
+
+    assert (stats.added, stats.updated, stats.deleted, stats.total) == (0, 0, 0, 1)
+    assert index.note_versions() == {}  # no chunks
+    assert index.empty_versions() == {note: "100"}  # but its version is known
+    assert joplin.count(f"/notes/{note}") == 1
     assert await _service(index=index, auto_sync=False).search("title") == []
+
+
+@respx.mock
+async def test_a_note_with_no_text_is_not_fetched_again_until_it_changes() -> None:
+    joplin, _notebook, note = _empty_note_vault()
+    index = FakeVectorIndex()
+    service = _service(index=index)
+    await service.sync()
+
+    stats = await service.sync()
+
+    assert (stats.added, stats.updated, stats.deleted, stats.total) == (0, 0, 0, 1)
+    assert joplin.count(f"/notes/{note}") == 1  # the second sync fetched nothing
+    # A fresh service over the same index (a second `reindex` run) doesn't either.
+    await _service(index=index).sync()
+    assert joplin.count(f"/notes/{note}") == 1
+
+
+@respx.mock
+async def test_a_note_that_gains_text_is_embedded_and_counted_as_added() -> None:
+    joplin, _notebook, note = _empty_note_vault()
+    index = FakeVectorIndex()
+    service = _service(index=index)
+    await service.sync()
+
+    joplin.notes[note].update(body="now with apple text", updated_time=200)
+    stats = await service.sync()
+
+    assert (stats.added, stats.updated) == (1, 0)
+    assert index.note_versions() == {note: "200"}
+    assert index.empty_versions() == {}
+
+
+@respx.mock
+async def test_a_note_that_is_emptied_drops_its_chunks_and_counts_as_updated() -> None:
+    joplin = FakeJoplin()
+    notebook = joplin.notebook("Work")
+    note = joplin.note("Plan", "apple plan", notebook)
+    joplin.install()
+    index = FakeVectorIndex()
+    service = _service(index=index)
+    await service.sync()
+
+    joplin.notes[note].update(body="", updated_time=200)
+    stats = await service.sync()
+
+    assert (stats.added, stats.updated, stats.deleted) == (0, 1, 0)
+    assert index.note_versions() == {}
+    assert index.empty_versions() == {note: "200"}
+    assert "apple" not in index.stored_text()
+
+
+@respx.mock
+async def test_a_deleted_note_with_no_text_loses_its_mark_uncounted() -> None:
+    joplin, _notebook, note = _empty_note_vault()
+    index = FakeVectorIndex()
+    service = _service(index=index)
+    await service.sync()
+
+    del joplin.notes[note]
+    stats = await service.sync()
+
+    assert (stats.deleted, stats.total) == (0, 0)  # it was never counted as added
+    assert index.empty_versions() == {}
+
+
+@respx.mock
+async def test_a_hidden_note_with_no_text_gets_no_mark() -> None:
+    joplin = FakeJoplin()
+    work, journal = joplin.notebook("Work"), joplin.notebook("Journal")
+    joplin.note("Plan", "apple plan", work)
+    hidden = joplin.note("Diary", "", journal)
+    joplin.install()
+    index = FakeVectorIndex()
+
+    await _service(index=index, exclude_notebooks=("Journal",)).sync()
+
+    assert index.empty_versions() == {}
+    assert joplin.count(f"/notes/{hidden}") == 0
+
+
+@respx.mock
+async def test_a_note_with_no_text_that_becomes_hidden_loses_its_mark() -> None:
+    joplin = FakeJoplin()
+    work, journal = joplin.notebook("Work"), joplin.notebook("Journal")
+    note = joplin.note("Title only", "", work)
+    joplin.install()
+    index = FakeVectorIndex()
+    service = _service(index=index, notebooks=("Work",))
+    await service.sync()
+    assert index.empty_versions() == {note: "100"}
+
+    joplin.move(note, journal)
+    stats = await service.sync()
+
+    assert (stats.deleted, stats.total) == (0, 0)
+    assert index.empty_versions() == {}
+
+
+@respx.mock
+async def test_prune_drops_the_mark_of_a_hidden_note_with_no_text_uncounted() -> None:
+    joplin = FakeJoplin()
+    work, journal = joplin.notebook("Work"), joplin.notebook("Journal")
+    note = joplin.note("Title only", "", work)
+    joplin.install()
+    index = FakeVectorIndex()
+    service = _service(index=index, notebooks=("Work",))
+    await service.sync()
+
+    joplin.move(note, journal)
+
+    assert await service.prune() == 0
+    assert index.empty_versions() == {}
+
+
+@respx.mock
+async def test_a_full_rebuild_looks_at_a_note_with_no_text_again() -> None:
+    joplin, _notebook, note = _empty_note_vault()
+    index = FakeVectorIndex()
+    service = _service(index=index)
+    await service.sync()
+
+    stats = await service.sync(full=True)
+
+    assert (stats.added, stats.total) == (0, 1)
+    assert joplin.count(f"/notes/{note}") == 2
+    assert index.empty_versions() == {note: "100"}
+
+
+@respx.mock
+async def test_a_model_change_clears_the_marks() -> None:
+    joplin, _notebook, note = _empty_note_vault()
+    index = FakeVectorIndex()
+    await _service(index=index).sync()
+
+    await _service(index=index, embedder=FakeEmbedder("other-model")).sync()
+
+    assert joplin.count(f"/notes/{note}") == 2
+    assert index.empty_versions() == {note: "100"}
 
 
 @respx.mock

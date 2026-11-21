@@ -230,9 +230,12 @@ Returns:
 
 | Field | Type | |
 |---|---|---|
-| `added` | integer | Notes that weren't in the index before. A note with no text has nothing to embed, so it is counted here at every sync |
-| `updated` | integer | Notes embedded again because they changed |
+| `added` | integer | Notes whose text went into the index for the first time: new notes, and notes that had no text before |
+| `updated` | integer | Notes in the index that changed: embedded again, or emptied (their text left the index) |
 | `deleted` | integer | Notes dropped from the index (deleted in Joplin, or hidden by the filter) |
+
+These three count notes with text. A note with no text has nothing to embed: it is
+looked at once for each version of it and counted in none of them, only in `total`.
 | `total` | integer | The notes visible in Joplin when the sync ran |
 | `model` | string | The embedding model in use |
 

@@ -70,7 +70,9 @@ the next sync rebuilds the index from scratch. All settings are listed in
   deduplicated to one hit per note (the best-scoring chunk).
 - **Incremental sync.** Each note's Joplin `updated_time` is stored as a version
   marker. A sync lists every note's id + `updated_time` (cheap, no bodies),
-  re-embeds only the ones that changed, and drops notes deleted in Joplin.
+  re-embeds only the ones that changed, and drops notes deleted in Joplin. A
+  note with no text has nothing to embed; the index records its version, so it
+  is read again only after it changes.
 - **Persistence.** The index lives at `SBJ_INDEX_DIR` and survives restarts.
 - **Notebook filter.** With `SBJ_NOTEBOOKS` or `SBJ_EXCLUDE_NOTEBOOKS` set
   ([remote-access.md](remote-access.md#choosing-which-notebooks-are-exposed)),

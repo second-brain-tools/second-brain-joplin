@@ -27,6 +27,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A note with no text was counted as added at every index sync** (#87), and
+  fetched from Joplin again each time, because nothing was stored for it. The
+  index now records the version of such a note, so it is read once for each
+  version. `added`, `updated` and `deleted` (from `joplin_reindex` and
+  `second-brain-joplin reindex`) now count only notes with text: a note that
+  gains text counts as added, one that is emptied as updated. An existing index
+  needs no rebuild.
 - **The guides said a new chat is enough for Claude to see a changed tool. It
   isn't** (#68). Claude's apps keep the tool list they read from a connector.
   After a server was restarted with `SBJ_ASK_EVERY_TIME=false`, new Claude Duet
