@@ -110,7 +110,7 @@ These apply to every tool, over stdio and HTTP alike.
 | `SBJ_WRITE_NOTEBOOKS` | none: read-only | New notes may be created in these notebooks. `*` means every visible notebook. Without it `joplin_create_note` doesn't exist |
 | `SBJ_EDIT_NOTEBOOKS` | none: no note can be changed | Notes in these notebooks may be changed by the tools that change notes. `*` means every visible notebook. Without it none of those tools exists. It is separate from `SBJ_WRITE_NOTEBOOKS`, which only ever allows a new note |
 | `SBJ_REPLACE` | `false` | `true` adds `joplin_replace_note`, which rewrites a whole note, to the tools `SBJ_EDIT_NOTEBOOKS` allows. A value that is neither a yes nor a no stops the server from starting |
-| `SBJ_ASK_EVERY_TIME` | `true` | `joplin_create_note` is marked to ask Claude's clients to put every call to a person. `false` leaves the mark off, for a client whose prompt for a marked tool can't be answered. Notes can then be created without asking you: read [what you give up](remote-access.md#a-client-whose-prompt-cant-be-answered) first |
+| `SBJ_ASK_EVERY_TIME` | `true` | The write tools (`joplin_create_note`, `joplin_edit_note`) are marked to ask Claude's clients to put every call to a person. `false` leaves the mark off, for a client whose prompt for a marked tool can't be answered. Notes can then be created without asking you: read [what you give up](remote-access.md#a-client-whose-prompt-cant-be-answered) first |
 
 - An entry is a notebook's **id or its exact title**, and covers that notebook
   and every notebook under it. Prefer ids: an id survives a rename, and a title

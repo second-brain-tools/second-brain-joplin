@@ -13,11 +13,11 @@ from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinError, JoplinNotFoundError, NotebookFilterError
+from ..failure import tool_error
 from ..journal import DAY
 from ..models import Change, epoch_ms_to_iso
 from ..scope import scope_of
 from .annotations import READ_ONLY
-from .failure import tool_error
 
 MAX_CHANGES_DAYS = 90
 MAX_CHANGES_LIMIT = 200

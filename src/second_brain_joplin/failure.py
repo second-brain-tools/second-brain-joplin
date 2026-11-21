@@ -4,7 +4,7 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from ..errors import NotebookFilterError
+from .errors import NotebookFilterError
 
 logger = logging.getLogger("second_brain_joplin.tools")
 

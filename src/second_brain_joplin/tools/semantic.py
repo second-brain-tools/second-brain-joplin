@@ -15,9 +15,9 @@ from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinError, NotebookFilterError, SemanticUnavailableError
+from ..failure import tool_error
 from ..models import MAX_SEMANTIC_LIMIT, ReindexResult, SemanticResult
 from .annotations import LOCAL_INDEX_WRITE, READ_ONLY
-from .failure import tool_error
 
 
 def register(mcp: FastMCP) -> None:

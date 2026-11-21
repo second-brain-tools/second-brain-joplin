@@ -43,11 +43,11 @@ from .errors import (
     JoplinNotFoundError,
     NotebookFilterError,
 )
+from .failure import tool_error
 from .journal import JournalError
 from .models import MAX_NOTE_CHARS, ChangedNote, epoch_ms_to_iso
 from .recent import request_key
 from .scope import WriteTargets, edit_targets_of, note_id_of, scope_of
-from .tools.failure import tool_error
 
 audit_logger = logging.getLogger("second_brain_joplin.audit")
 logger = logging.getLogger("second_brain_joplin.changes")

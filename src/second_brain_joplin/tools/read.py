@@ -10,6 +10,7 @@ from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinError, JoplinNotFoundError, NotebookFilterError
+from ..failure import tool_error
 from ..joplin_client import JoplinClient, JsonDict
 from ..markdown import SectionError, find_section, section_at
 from ..markdown import outline as _outline
@@ -45,7 +46,6 @@ from ..scope import (
 )
 from ..search import first_match, keywords, matching, notebook_terms, snippet
 from .annotations import READ_ONLY
-from .failure import tool_error
 
 SearchLimit = Annotated[int, Field(ge=1, le=MAX_SEARCH_LIMIT)]
 NoteId = Annotated[

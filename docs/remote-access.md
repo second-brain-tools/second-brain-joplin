@@ -140,17 +140,20 @@ To cut access at once, do any one of:
 
 ## What a remote client can do
 
-Unless you turn note creation on ([Creating notes](#creating-notes)), every tool
-is read-only toward Joplin, the same over HTTP as over stdio:
+Unless you turn note creation on ([Creating notes](#creating-notes)) or
+changing notes ([Changing notes](#changing-notes)), every tool is read-only
+toward Joplin, the same over HTTP as over stdio:
 
-- **No write tool is registered** until you list where notes may go. A client
-  can't call, or even see, a tool that isn't there.
+- **No write tool is registered** until you list where notes may go or which
+  notes may change. A client can't call, or even see, a tool that isn't there.
 - **Annotations** mark every tool read-only, except `joplin_reindex`, which
-  updates the local search index only (never Joplin, never destructive), and
-  `joplin_create_note`, which is marked as a write that adds and never destroys.
-- **Bounded arguments:** `limit` 1–50 for the searches, 1–100 for
-  `joplin_recent`, `days` 1–3650. Anything outside is refused before Joplin is
-  called.
+  updates the local search index only (never Joplin, never destructive),
+  `joplin_create_note`, which is marked as a write that adds and never destroys,
+  and `joplin_edit_note`, which is marked destructive, because an edit can
+  remove text.
+- **Bounded arguments:** `limit` 1–100 for the keyword search, 1–50 for search
+  by meaning, 1–100 for `joplin_recent`, `days` 1–3650. Anything outside is
+  refused before Joplin is called.
 - **Long notes are read in pages.** Claude caps a tool result near 150,000
   characters, so `joplin_read` returns at most `max_chars` (default 50,000, up to
   100,000) from `offset`, with `total_chars` and `next_offset` for the rest.
@@ -266,7 +269,8 @@ The server is read-only until you say where notes may go:
 
 With it set, one more tool appears: `joplin_create_note(title, body, notebook)`.
 It adds one new markdown note to a notebook on the list, named by its exact
-title or its id. That is all it can do. It can't change, move or delete a note,
+title or its id. That is all it can do. It can't change, move or delete a note
+(changing one takes `SBJ_EDIT_NOTEBOOKS`: [Changing notes](#changing-notes)),
 and it can't write to a notebook the filter hides. Without the variable the tool
 isn't registered at all.
 
@@ -284,7 +288,8 @@ carries the whole note in readable form: the notebook by name, the title, the
 text. What you approve is what gets written.
 
 Whether a client asks is up to the client. The server does what it can to make
-Claude's clients ask: it marks `joplin_create_note` with
+Claude's clients ask: it marks every write tool (`joplin_create_note` and
+`joplin_edit_note`) with
 `"anthropic/requiresUserInteraction": true`, which Claude Code documents as the
 way for a tool to require approval on every call. The table shows what each
 client did when tested in November 2026, with that mark and with the mark left
@@ -297,6 +302,10 @@ tool was on "Needs approval" throughout.
 | A chat on claude.ai | Asked before each note, in Manual and in Auto mode. Not tested with "Always allow" | Not tested |
 | Claude Duet | Shows a prompt with no way to approve it, so no note can be created | Created the note without asking, on the web and in the phone app |
 | Any other client | Not known. Find out how yours treats a tool that isn't read-only before you turn note creation on | Not known |
+
+The table was made with `joplin_create_note`. `joplin_edit_note` carries the
+same mark under the same setting; expect the same, and check it with your
+client before relying on it.
 
 **"Needs approval" is not that check.** Claude's apps give each connector tool
 a permission, under **Customize → Connectors**, on the connector's
@@ -375,7 +384,8 @@ catch that, which is the reason to use a client that asks, and to leave
 
 ## Changing notes
 
-The tools that change a note exist only when `SBJ_EDIT_NOTEBOOKS` lists the
+The tools that change a note (`joplin_edit_note`, and with `SBJ_REPLACE` the one
+that rewrites a whole note) exist only when `SBJ_EDIT_NOTEBOOKS` lists the
 notebooks whose notes may change. `SBJ_WRITE_NOTEBOOKS` alone never allows a
 change: it has always meant "a new note, and nothing else". A client may have
 no prompt at all (an always-on agent, or `SBJ_ASK_EVERY_TIME=false`), so the

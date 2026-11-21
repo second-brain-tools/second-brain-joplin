@@ -374,9 +374,10 @@ looked at once for each version of it and counted in none of them, only in `tota
 
 ## `joplin_create_note`
 
-Adds one new markdown note to a notebook. This is the only tool that writes to
-Joplin, and adding a note is all it does: it can't change, move or delete a
-note. It is registered only when
+Adds one new markdown note to a notebook. Adding a note is all it does: it can't
+change, move or delete one (changing a note is
+[`joplin_edit_note`](#joplin_edit_note)'s, with a setting of its own). It is
+registered only when
 [`SBJ_WRITE_NOTEBOOKS`](configuration.md#notebooks) is set, so on a server
 without it a client can't see or call it.
 
@@ -427,6 +428,71 @@ Returns:
   moment is safe.
 
 More in [Creating notes](remote-access.md#creating-notes).
+
+## `joplin_edit_note`
+
+Changes part of a note, or adds text to a section, to its start or to its end.
+It exists when [`SBJ_EDIT_NOTEBOOKS`](configuration.md#notebooks) lists the
+notebooks whose notes may change, and works only on notes there. Before every
+change the server keeps a copy of the note
+([what protects a change](remote-access.md#changing-notes)).
+
+| Argument | Type | Default | Allowed |
+|---|---|---|---|
+| `note_id` | string | required | The note's id, or a link to it |
+| `title` | string | required | The note's current title, exactly as `joplin_read` gave it |
+| `expected_sha256` | string | required | `body_sha256` from the `joplin_read` the change is based on |
+| `edits` | list or null | null | Up to 50 `{"old": …, "new": …}`: `old` copied exactly from the note, `new` what it becomes (empty removes it) |
+| `append` | object or null | null | `{"text": …, "section": …}`: the text to add, and where: a heading's exact text or a path from the outline; no `section` means the end of the note |
+| `prepend` | object or null | null | `{"text": …}`: the text to add at the very start |
+
+At least one of `edits`, `append` and `prepend` is needed; together they may
+hold up to 100,000 characters. The edits are applied in order, then `append`,
+then `prepend`.
+
+- **Each `old` must appear exactly once** in the text as it stands when its
+  turn comes, copied exactly: spaces, punctuation and line breaks matter
+  (overlapping matches count). An `old` may match text an earlier edit wrote.
+- **If any part doesn't fit, nothing is written,** and the answer says which
+  part and why: `Edit 2: its old text appears 3 times…`.
+- **`append` with a `section`** goes at the end of that section, after its last
+  line of text and before the next heading of the same or a higher level, so
+  after its subsections. The rules for headings and sections are
+  [`joplin_read`'s](#joplin_read): `#` headings outside code blocks only.
+- **Inserted text takes the note's own line endings** (Windows' `\r\n` or
+  `\n`). Everything else in the note stays as it was, byte for byte.
+- The title, notebook, tags and creation date don't change.
+
+Returns:
+
+| Field | Type | |
+|---|---|---|
+| `id`, `title` | string | The note |
+| `notebook_id`, `notebook` | string | Its notebook |
+| `old_chars`, `new_chars` | integer | Its length before and after |
+| `old_sha256`, `new_sha256` | string | The checksum of its text before and after: `new_sha256` is what to give as `expected_sha256` for the next change |
+| `updated_time` | string or null | When Joplin saved the change |
+| `edits_applied` | integer | How many `edits` were applied |
+| `already_applied` | boolean | `true` when the same call was answered a moment ago and the note still holds its result: nothing was written this time |
+
+```json
+{
+  "id": "4be0a1c2d3e4f5061728394a5b6c7d8e",
+  "title": "Cabinet quotes",
+  "notebook_id": "0b7e3f9a1c2d4e5f8a7b6c5d4e3f2a1b",
+  "notebook": "Projects",
+  "old_chars": 73,
+  "new_chars": 112,
+  "old_sha256": "9f2c…",
+  "new_sha256": "41ab…",
+  "updated_time": "2026-11-22T10:14:03.218000+00:00",
+  "edits_applied": 1,
+  "already_applied": false
+}
+```
+
+To check a change without reading the note again, compare `new_sha256` with the
+text you meant to leave.
 
 ## `joplin_changes`
 
@@ -492,6 +558,17 @@ assistant can pass on. These are the ones the server writes itself;
 | `A note can't be created in that notebook. Notebooks that can receive notes: …` | `joplin_create_note` was given a notebook that isn't on the list |
 | `Note creation is off on this server: its operator hasn't listed any notebook that may receive notes (SBJ_WRITE_NOTEBOOKS).` | `SBJ_WRITE_NOTEBOOKS` is set, and no notebook it covers is visible |
 | `A note needs a title.` | The title was only spaces |
+| `The requested Joplin resource was not found.` (from a change tool) | No note has that id, or the filter hides it |
+| `This note's notebook isn't one whose notes can be changed. Those are: …` | The note is outside `SBJ_EDIT_NOTEBOOKS` |
+| `The title doesn't match the note's current title, so nothing was changed. …` | Read the note again and give its title as it is |
+| `The note has changed since it was read (its text's checksum is different), so nothing was changed. …` | Read it again and make the change on what it says now |
+| `Edit N: its old text isn't in the note …` / `Edit N: its old text appears K times …` | That edit's `old` must be copied exactly and found once |
+| `This note is in Joplin's trash …`, `… is a conflict copy …`, `… hasn't been decrypted …`, `… isn't Markdown …` | Notes no tool changes |
+| `The change would remove N reference(s) to the note's attachments …` | Keep every `:/<id>` of an attachment |
+| `The change would leave the note as it is, so nothing was written.` | The edit's `old` and `new` are the same |
+| `The server's limit of N changes a day is reached …` | `SBJ_CHANGES_PER_DAY`; it says when it resets |
+| `The server couldn't keep a copy of the note before changing it, so nothing was changed. …` | The journal folder can't be written; the server's log says why |
+| `… The change may or may not have been made: read the note to see …` | Joplin took the request and didn't answer; a repeat won't change it twice |
 | `… The note may or may not have been created: look in Joplin, or try again in a moment (a repeat of this request won't make a second copy).` | Joplin took the request and didn't answer |
 | `Rate limit exceeded for client: <id>` | HTTP mode: a burst of more than half [`SBJ_RATE_LIMIT_PER_MINUTE`](configuration.md#http-mode), or more than that many calls a minute kept up. The call is refused before any tool runs |
 

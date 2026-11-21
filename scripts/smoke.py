@@ -57,6 +57,8 @@ READ_TOOLS = {
     "joplin_reindex",
 }
 WRITE_TOOL = "joplin_create_note"
+# Registered by SBJ_EDIT_NOTEBOOKS: the tools that change a note, and the list of changes.
+EDIT_TOOLS = {"joplin_edit_note", "joplin_changes"}
 ASK_EVERY_TIME = "anthropic/requiresUserInteraction"
 # A first run installs the package and its dependencies before the server speaks.
 START_TIMEOUT = 300
@@ -172,6 +174,22 @@ async def check_stdio(server: Server, joplin_down: dict[str, str]) -> None:
         check(
             not await asks_every_time(client),
             "stdio: SBJ_ASK_EVERY_TIME=false leaves that mark off",
+        )
+
+    async with server.stdio({**joplin_down, "SBJ_EDIT_NOTEBOOKS": "Inbox"}) as client:
+        tools = {tool.name: tool for tool in await client.list_tools()}
+        check(
+            set(tools) == READ_TOOLS | EDIT_TOOLS,
+            "stdio: SBJ_EDIT_NOTEBOOKS adds the tools that change notes and nothing else",
+            ", ".join(sorted(set(tools) - READ_TOOLS)),
+        )
+        edit_tool = tools.get("joplin_edit_note")
+        check(
+            edit_tool is not None
+            and edit_tool.annotations is not None
+            and edit_tool.annotations.destructive_hint is True
+            and (edit_tool.meta or {}).get(ASK_EVERY_TIME) is True,
+            "stdio: joplin_edit_note is marked destructive, and to be asked about on every call",
         )
 
 

@@ -3,7 +3,8 @@
 Registered only when the operator has said where notes may go
 (``SBJ_WRITE_NOTEBOOKS``); without it the server is read-only and a client can't
 even see a write tool. What the tool can do is deliberately narrow: add one new
-note to a notebook on that list. It never edits, moves or deletes anything.
+note to a notebook on that list. It never edits, moves or deletes anything:
+changing a note is tools/edit.py's, under a setting of its own.
 
 The human check on each note is the client's own approval prompt for this call,
 which is why the call carries the whole note in readable form (the notebook by
@@ -18,6 +19,7 @@ tool remembers for a few minutes which note it sent (recent.py): the same note
 asked for again is found, not made twice.
 """
 
+import hashlib
 import logging
 import uuid
 from typing import Annotated
@@ -29,12 +31,12 @@ from pydantic import Field
 from ..audit import caller_id
 from ..context import app_context
 from ..errors import JoplinAuthError, JoplinConnectionError, JoplinError, NotebookFilterError
+from ..failure import tool_error
 from ..joplin_client import JoplinClient
 from ..models import MAX_NOTE_CHARS, MAX_TITLE_CHARS, CreatedNote, epoch_ms_to_iso
 from ..recent import note_key
 from ..scope import ID_RE, WriteTargets
 from .annotations import ASK_EVERY_TIME, CREATES_NOTE
-from .failure import tool_error
 
 audit_logger = logging.getLogger("second_brain_joplin.audit")
 
@@ -126,7 +128,7 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
 
         Use it only for a note the user asked for, and first tell them the
         notebook, the title and what the note will say. It adds a note and
-        nothing else: it can't change, move or delete a note.
+        nothing else: to change a note, use joplin_edit_note where it exists.
         """
         app = app_context(ctx)
         note_title = clean_title(title)
@@ -145,6 +147,8 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
                 notebook=notebook_title,
                 created_time=when,
                 already_created=repeat,
+                chars=len(body),
+                body_sha256=hashlib.sha256(body.encode()).hexdigest(),
             )
 
         # A repeat of a request made a moment ago (a retry after a timeout, say)

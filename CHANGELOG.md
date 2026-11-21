@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`joplin_edit_note` changes part of a note, or adds to it** (#83, which
+  covers #70). `edits` replace exact text from the note, each found once, in
+  order; `append` adds text at the end of a section (by heading or path) or of
+  the note; `prepend` adds it at the start. A note kept current (a plan, a
+  brief, a log) no longer has to be written out again as a new note for every
+  change. The call names the note's title and the checksum of the text it read;
+  if any part doesn't fit, nothing is written; everything outside the change
+  stays byte for byte, in the note's own line endings. The result carries the
+  old and new lengths and checksums, so a change can be checked without reading
+  the note again. It runs under the safety net above, is marked destructive, and
+  carries the ask-every-time mark under `SBJ_ASK_EVERY_TIME`.
+  `joplin_create_note` now returns `chars` and `body_sha256` too.
 - **A safety net for changing notes** (#82), under the tools that change a
   note (they come with it in this release). `SBJ_EDIT_NOTEBOOKS` lists the
   notebooks whose notes may change; without it no such tool exists, and

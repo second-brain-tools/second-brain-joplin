@@ -20,6 +20,12 @@ CREATES_NOTE = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
 )
 
+# Changes an existing note. An edit can remove text, so destructive; calling it
+# twice is answered from the repeat memory, but a client can't rely on that.
+CHANGES_NOTE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False
+)
+
 # Tool metadata Claude Code honours: prompt the user on every call of this tool,
 # with no "don't ask again", whatever allow rules are in force and in every
 # permission mode that can prompt (Claude Code docs, "Require approval for a

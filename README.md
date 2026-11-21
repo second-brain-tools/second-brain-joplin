@@ -80,11 +80,13 @@ connectors (claude.ai, the Claude apps, Cowork) can reach it through a tunnel. S
 | `joplin_recent` | Notes modified in the last N days (`days` 1–3650, `limit` 1–100) | No |
 | `joplin_semantic_search` | Find notes by meaning (embeddings; `limit` 1–50) | No |
 | `joplin_reindex` | Build/refresh the semantic index | The local index only, never Joplin |
-| `joplin_create_note` | Add a new markdown note to a notebook you allow (`title`, `body`, `notebook` by title or id) | A new note; never edits, moves or deletes. Off by default |
+| `joplin_create_note` | Add a new markdown note to a notebook you allow (`title`, `body`, `notebook` by title or id) | A new note, nothing else. Off by default |
+| `joplin_edit_note` | Change part of a note (exact text replaced), or add to a section, its start or its end | Changes a note, after keeping a copy of it. Off by default (`SBJ_EDIT_NOTEBOOKS`) |
 
 [docs/tools.md](docs/tools.md) describes each tool's arguments, results and
 errors. Every tool carries MCP annotations (read-only; for `joplin_reindex`
-local and non-destructive; for `joplin_create_note` a write that only adds), so
+local and non-destructive; for `joplin_create_note` a write that only adds; for
+`joplin_edit_note` a destructive write, since an edit can remove text), so
 clients can tell what each one does.
 
 `joplin_create_note` exists only once you set `SBJ_WRITE_NOTEBOOKS` to the
@@ -150,7 +152,7 @@ manage tags. second-brain-joplin is for the cases it doesn't cover:
 | Sign-in | Joplin's Web Clipper token, in the address of each request | The token locally; remotely, GitHub sign-in limited to the accounts you list |
 | Which notebooks | All of them | The ones you choose; hidden notebooks are left out of every tool |
 | Where it can write | Anywhere, one switch per tool | Only the notebooks you list |
-| What it can change | Create, edit, trash, tags, notebooks | New notes only |
+| What it can change | Create, edit, trash, tags, notebooks | New notes, and edits to notes in the notebooks you list, each checked against the version read, with a copy kept first and a daily limit |
 | A record of calls | Joplin's Web Clipper log has one line per request: its address, token included, not which tool ran. No rate limit | In HTTP mode, one log line per call (tool, caller, outcome, time), never the token, and a rate limit per caller |
 | Search by meaning | Joplin's AI features must be on | A local index of its own |
 | Clients | Ones that speak MCP over HTTP | stdio and HTTP |
@@ -173,7 +175,7 @@ section come in 1.2; the trash, moving notes, tags, to-dos and new notebooks in
 | Storage | Plain `.md` files on disk | Joplin REST API |
 | Requires app running | No | Yes (Joplin + Web Clipper) |
 | Semantic search | Yes (bge-m3) | Yes (FastEmbed / bge-m3) |
-| Write support | Human-gated | New notes only, where you allow, approved in your client |
+| Write support | Human-gated | New notes and edits, where you allow, with a copy kept before each change |
 | Install | `uvx second-brain-mcp` | `uvx second-brain-joplin` |
 
 ---
@@ -216,7 +218,7 @@ The [PARA method](https://fortelabs.com/blog/para/) works well with Joplin. See 
 
 ## Security & privacy
 
-By default (stdio) this server keeps your notes local: it talks only to Joplin's Web Clipper REST API on `localhost` and runs on your own machine. HTTP mode, for a Claude custom connector, deliberately sends what Claude reads to Anthropic, behind GitHub sign-in limited to your account ([remote access](docs/remote-access.md)). Anything an MCP client can read, the connected AI can read — so apply least privilege and don't expose notebooks with credentials or other sensitive data; a notebook filter (`SBJ_NOTEBOOKS` / `SBJ_EXCLUDE_NOTEBOOKS`) keeps chosen notebooks out of every tool. The server is read-only until you list the notebooks that may receive notes; it can then add a new note there and nothing else, and your client's approval prompt, where the client asks, is the check on each one.
+By default (stdio) this server keeps your notes local: it talks only to Joplin's Web Clipper REST API on `localhost` and runs on your own machine. HTTP mode, for a Claude custom connector, deliberately sends what Claude reads to Anthropic, behind GitHub sign-in limited to your account ([remote access](docs/remote-access.md)). Anything an MCP client can read, the connected AI can read — so apply least privilege and don't expose notebooks with credentials or other sensitive data; a notebook filter (`SBJ_NOTEBOOKS` / `SBJ_EXCLUDE_NOTEBOOKS`) keeps chosen notebooks out of every tool. The server is read-only until you list the notebooks that may receive notes (`SBJ_WRITE_NOTEBOOKS`) or whose notes may change (`SBJ_EDIT_NOTEBOOKS`). A change is checked against the version of the note that was read, the note is copied to the server's disk first, and a daily limit bounds the changes ([Changing notes](docs/remote-access.md#changing-notes)); your client's approval prompt, where the client asks, is the check on each call.
 
 Two caveats apply once you enable semantic search: it writes a **local index** (under your XDG data dir by default) that stores note text excerpts and titles alongside the embeddings, and it downloads the embedding model **once over the network** on the first reindex. Your note *content* is embedded locally and never leaves your machine. See [SECURITY.md](SECURITY.md) for details and how to report a vulnerability.
 

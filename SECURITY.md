@@ -78,10 +78,18 @@ public issue. We aim to acknowledge reports within a few days.
   It filters by notebook: a visible note that quotes a hidden one still shows
   what it quotes.
 - **No silent writes.** The server is read-only until you list where notes may
-  be created (`SBJ_WRITE_NOTEBOOKS`); without it no write tool is registered and
-  a client can't see one. With it, `joplin_create_note` adds a new note to those
-  notebooks and does nothing else: it can't edit, move or delete, and it can't
-  write to a notebook the filter hides. The check on each note is your client's
+  be created (`SBJ_WRITE_NOTEBOOKS`) or changed (`SBJ_EDIT_NOTEBOOKS`); without
+  them no write tool is registered and a client can't see one. With the first,
+  `joplin_create_note` adds a new note to those notebooks and does nothing
+  else. With the second, `joplin_edit_note` changes notes in those notebooks,
+  and never in one the filter hides. A change always carries the checksum of
+  the text it was made on, so a note changed since is never overwritten; before
+  each change the server keeps a copy of the note on its own disk (no copy, no
+  change), and `second-brain-joplin restore` puts it back; no more than
+  `SBJ_CHANGES_PER_DAY` changes are made in a day; a change that would drop a
+  reference to an attachment is refused; `joplin_changes` lists what was
+  changed ([Changing notes](docs/remote-access.md#changing-notes)). Nothing
+  moves or deletes a note. The check on each note is your client's
   approval prompt, and the call carries the note in readable form so the prompt
   shows what will be written. Whether a client asks is the client's decision.
   The server marks the tool to ask Claude's clients to put every call to a

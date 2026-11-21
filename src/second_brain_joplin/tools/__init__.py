@@ -1,14 +1,15 @@
 """MCP tool registration.
 
 The read and semantic tools are always registered and are read-only toward
-Joplin. The one write tool, ``joplin_create_note``, is registered only when the
-operator has listed where notes may go (``SBJ_WRITE_NOTEBOOKS``); otherwise the
-server is read-only and a client can't even see a write tool.
+Joplin. ``joplin_create_note`` is registered only when the operator has listed
+where notes may go (``SBJ_WRITE_NOTEBOOKS``), and the tools that change notes only
+when they have listed whose notes may change (``SBJ_EDIT_NOTEBOOKS``); otherwise
+the server is read-only and a client can't even see a write tool.
 """
 
 from fastmcp import FastMCP
 
-from . import changes, read, semantic, write
+from . import changes, edit, read, semantic, write
 
 
 def register_tools(
@@ -26,3 +27,4 @@ def register_tools(
         write.register(mcp, ask_every_time=ask_every_time)
     if edits:
         changes.register(mcp)
+        edit.register(mcp, ask_every_time=ask_every_time)

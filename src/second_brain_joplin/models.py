@@ -210,3 +210,6 @@ class CreatedNote(BaseModel):
     notebook: str
     created_time: str | None = None
     already_created: bool = False
+    # The text as sent, to check a copy without reading it back.
+    chars: int = 0
+    body_sha256: str = ""
