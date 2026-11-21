@@ -34,9 +34,10 @@ def register(mcp: FastMCP) -> None:
         """List the changes this server made to notes, newest first.
 
         Each has when, which tool, the note's id and its title now, its length
-        before and after, and how it ended (``applied``, ``failed``,
-        ``unconfirmed``). No note text. Useful at the start of a session, to see
-        what was changed.
+        before and after, and how it ended: ``applied``; ``failed`` (nothing
+        changed); ``unconfirmed`` or ``sent`` (Joplin's answer never came back:
+        read the note to see). No note text. Useful at the start of a session, to
+        see what was changed.
         """
         app = app_context(ctx)
         journal = app.journal()

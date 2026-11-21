@@ -102,14 +102,26 @@ public issue. We aim to acknowledge reports within a few days.
   ask", where an account has it, is the only per-tool setting that asks in
   every mode. `SBJ_ASK_EVERY_TIME=false`
   leaves the mark off, for a client whose prompt for a marked tool can't be
-  answered. Notes can then be created in the listed notebooks without asking
-  you, so set it only if you accept that
+  answered. Notes can then be created in the listed notebooks, and with
+  `SBJ_EDIT_NOTEBOOKS` changed, without asking you, so set it only if you
+  accept that
   ([Who confirms each note](docs/remote-access.md#who-confirms-each-note)).
   The server can't ask you itself on every client, so it doesn't claim to:
   it limits where a note can land, logs each attempt by id, and returns the note
   already made when the same request is repeated within ten minutes
   ([Creating notes](docs/remote-access.md#creating-notes)). The semantic tools
   only read from Joplin and write to a local index (below).
+
+### Kept copies of changed notes
+
+With `SBJ_EDIT_NOTEBOOKS` set, the server keeps the full title, text and
+notebook of each note before every change, in `SBJ_UNDO_DIR` (by default under
+your XDG data directory; the folder mode 0700 and each file 0600 where the
+system has modes). The copies are **plaintext, unencrypted** note text: treat
+the folder as sensitive as the notes themselves. They are kept for at least
+`SBJ_UNDO_DAYS` (90) days within `SBJ_UNDO_MAX_MB` (500), removed when a later
+change is applied, and they can't be switched off: they are how a change is
+undone (`second-brain-joplin restore`).
 
 ### Semantic search
 

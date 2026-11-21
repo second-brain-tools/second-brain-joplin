@@ -87,9 +87,10 @@ connectors (claude.ai, the Claude apps, Cowork) can reach it through a tunnel. S
 
 [docs/tools.md](docs/tools.md) describes each tool's arguments, results and
 errors. Every tool carries MCP annotations (read-only; for `joplin_reindex`
-local and non-destructive; for `joplin_create_note` a write that only adds; for
-`joplin_edit_note` a destructive write, since an edit can remove text), so
-clients can tell what each one does.
+local and non-destructive; for `joplin_create_note` and `joplin_create_notes`
+a write that only adds; for `joplin_edit_note` and `joplin_replace_note` a
+destructive write, since a change can remove text), so clients can tell what
+each one does.
 
 `joplin_create_note` exists only once you set `SBJ_WRITE_NOTEBOOKS` to the
 notebooks that may receive notes (ids or titles, or `*` for every visible one).
@@ -155,7 +156,7 @@ manage tags. second-brain-joplin is for the cases it doesn't cover:
 | Which notebooks | All of them | The ones you choose; hidden notebooks are left out of every tool |
 | Where it can write | Anywhere, one switch per tool | Only the notebooks you list |
 | What it can change | Create, edit, trash, tags, notebooks | New notes, and edits to notes in the notebooks you list, each checked against the version read, with a copy kept first and a daily limit |
-| A record of calls | Joplin's Web Clipper log has one line per request: its address, token included, not which tool ran. No rate limit | In HTTP mode, one log line per call (tool, caller, outcome, time), never the token, and a rate limit per caller |
+| A record of calls | Joplin's Web Clipper log has one line per request: its address, token included, not which tool ran. No rate limit | In HTTP mode, one log line per call (tool, caller, outcome, time), never the token, and a rate limit per caller. On any transport, a kept copy of every changed note, listed by `joplin_changes` and put back with `second-brain-joplin restore` |
 | Search by meaning | Joplin's AI features must be on | A local index of its own |
 | Clients | Ones that speak MCP over HTTP | stdio and HTTP |
 

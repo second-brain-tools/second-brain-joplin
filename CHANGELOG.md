@@ -84,7 +84,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `joplin_read` takes `outline: true` (one line per section: its path, its
   length and its heading) or `section` (a path such as `1.2`, or a heading's
   exact text), and pages within either as it does through a note. Only `#`
-  headings outside code blocks count, the same rule the edit tools will use, so
+  headings outside code blocks count, the same rule `joplin_edit_note` uses, so
   a section read is the section an edit lands in
   ([docs/tools.md](docs/tools.md#joplin_read)).
 - **The README compares this server with Joplin's built-in MCP server**
@@ -95,7 +95,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`SBJ_JOPLIN_TIMEOUT` and `SBJ_JOPLIN_CONNECT_TIMEOUT`** (#86): how long
   Joplin has to answer a request (10 seconds, as before) and to accept the
   connection (3 seconds). A value that isn't a number of seconds above 0 stops
-  `serve`, `reindex` and `notebooks` from starting.
+  `serve`, `reindex`, `notebooks` and `restore` from starting.
 
 ### Changed
 

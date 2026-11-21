@@ -44,7 +44,15 @@ first installed ([Updating](install.md#updating)).
 **"SBJ_ASK_EVERY_TIME must be true or false".** The server won't start with a
 value it can't read for that setting, because a typo there would otherwise pass
 for an answer. Use `true` or `false`, or remove the variable to keep the
-default, which is true.
+default, which is true. `SBJ_REPLACE` is read the same way; its default is
+false.
+
+**"… must be a number of seconds above 0", "… must be a whole number of at
+least 1", "SBJ_CREATE_NOTES_MAX must be a whole number from 0 to 20".** A
+timeout (`SBJ_JOPLIN_TIMEOUT`, `SBJ_JOPLIN_CONNECT_TIMEOUT`), a journal or limit
+setting (`SBJ_UNDO_DAYS`, `SBJ_UNDO_MAX_MB`, `SBJ_CHANGES_PER_DAY`) or
+`SBJ_CREATE_NOTES_MAX` has a value the commands can't use. Fix it, or remove the
+variable to keep its default ([configuration](configuration.md)).
 
 ## A tool answers with an error
 
@@ -86,8 +94,9 @@ token is missing or isn't the one Joplin shows.
 [notebook filter](configuration.md#notebooks) hides it.
 
 **"The server's notebook settings … don't match Joplin's notebooks".** A
-notebook named in `SBJ_NOTEBOOKS`, `SBJ_EXCLUDE_NOTEBOOKS` or
-`SBJ_WRITE_NOTEBOOKS` was renamed, deleted or duplicated. The tools refuse
+notebook named in `SBJ_NOTEBOOKS`, `SBJ_EXCLUDE_NOTEBOOKS`,
+`SBJ_WRITE_NOTEBOOKS` or `SBJ_EDIT_NOTEBOOKS` was renamed, deleted or
+duplicated. The tools refuse
 rather than guess. On the server's machine, run:
 
 ```bash
@@ -199,6 +208,45 @@ minutes isn't created twice.
 
 **The new note isn't on your other devices.** It is created in the Joplin on the
 server's machine and reaches the others at that Joplin's next sync.
+
+## Changing notes
+
+**"This note's notebook isn't one whose notes can be changed. Those are: …"**
+The note is outside `SBJ_EDIT_NOTEBOOKS`. Move it in Joplin, or add its
+notebook to the list ([configuration](configuration.md#notebooks)).
+
+**"The title doesn't match …" or "The note has changed since it was read …".**
+The note changed in Joplin after Claude read it, or Claude gave a stale title or
+checksum. Nothing was written. Ask Claude to read the note again and make the
+change on what it says now.
+
+**"Edit N: its old text isn't in the note …" / "… appears K times …".** An
+edit has to name text copied exactly from the note, found once. Nothing was
+written.
+
+**"The change would remove N reference(s) to the note's attachments …".** Joplin
+deletes an attachment no note refers to, so a change that drops a `:/<id>` is
+refused. Keep the reference, or remove the attachment in Joplin yourself.
+
+**"The server's limit of N changes a day is reached …".** `SBJ_CHANGES_PER_DAY`
+(100) changes were made today; it says when it resets. Raise the setting if your
+day needs more, after looking at `joplin_changes` to see what used them.
+
+**"The server couldn't keep a copy of the note before changing it …".** The
+folder `SBJ_UNDO_DIR` can't be written (full disk, permissions). Nothing was
+changed. The server's log says why.
+
+**"This note is locked in Joplin …".** Joplin's note lock protects it: unlock
+it in Joplin first.
+
+**"… The change may or may not have been made …".** Joplin took the request and
+didn't answer. Read the note to see; sending the same change again won't make
+it twice.
+
+**Putting a note back.** Every change keeps a copy of the note first. On the
+server's machine, `second-brain-joplin restore <note id>` lists the copies, and
+`--pick N` puts one back
+([the command](configuration.md#second-brain-joplin-restore)).
 
 ## HTTP mode
 

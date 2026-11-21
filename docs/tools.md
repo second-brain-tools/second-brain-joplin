@@ -1,18 +1,27 @@
 # Tool reference
 
-The server offers seven MCP tools. Six are always there and never change
-Joplin. The seventh, `joplin_create_note`, exists only once you list the
-notebooks that may receive notes ([`SBJ_WRITE_NOTEBOOKS`](configuration.md#notebooks)).
+Eight tools are always there and never change Joplin (`joplin_reindex` writes
+only the local index). Up to five more exist only when you allow them:
+`joplin_create_note` and `joplin_create_notes`
+([`SBJ_WRITE_NOTEBOOKS`](configuration.md#notebooks), `SBJ_CREATE_NOTES_MAX`),
+and `joplin_edit_note`, `joplin_replace_note` and `joplin_changes`
+([`SBJ_EDIT_NOTEBOOKS`](configuration.md#notebooks), `SBJ_REPLACE`).
 
 | Tool | What it does | Changes |
 |---|---|---|
 | [`joplin_overview`](#joplin_overview) | Lists the notebooks as a tree, with note counts | Nothing |
-| [`joplin_search`](#joplin_search) | Finds notes by keyword | Nothing |
-| [`joplin_read`](#joplin_read) | Reads one note, a page at a time | Nothing |
+| [`joplin_search`](#joplin_search) | Finds notes by keyword, saying where each match is | Nothing |
+| [`joplin_read`](#joplin_read) | Reads one note, a page or a section at a time, or its outline | Nothing |
+| [`joplin_read_notes`](#joplin_read_notes) | Reads up to 20 notes at once | Nothing |
+| [`joplin_list_notes`](#joplin_list_notes) | Lists the notes in one notebook | Nothing |
 | [`joplin_recent`](#joplin_recent) | Lists the notes changed in the last N days | Nothing |
 | [`joplin_semantic_search`](#joplin_semantic_search) | Finds notes by meaning | Nothing in Joplin (it may refresh the local index first) |
 | [`joplin_reindex`](#joplin_reindex) | Builds or refreshes the semantic index | The local index only, never Joplin |
-| [`joplin_create_note`](#joplin_create_note) | Adds one new note to a notebook you allow | A new note; it can't edit, move or delete |
+| [`joplin_create_note`](#joplin_create_note) | Adds one new note to a notebook you allow | A new note, nothing else |
+| [`joplin_create_notes`](#joplin_create_notes) | Adds up to 20 new notes in one call | New notes, nothing else |
+| [`joplin_edit_note`](#joplin_edit_note) | Changes part of a note, or adds to it | That note, after a copy is kept |
+| [`joplin_replace_note`](#joplin_replace_note) | Replaces the whole text of a note | That note, after a copy is kept |
+| [`joplin_changes`](#joplin_changes) | Lists the changes the server made | Nothing |
 
 What holds for every tool:
 
@@ -199,8 +208,8 @@ heading, separated by tabs:
 
 What counts as a heading and a section:
 
-- **A heading** is a line that starts with one to six `#` and a space, at most
-  three spaces in, outside a fenced code block (```` ``` ```` or `~~~`). Text
+- **A heading** is a line that starts with one to six `#` followed by a space, a
+  tab or the end of the line, at most three spaces in, outside a fenced code block (```` ``` ```` or `~~~`). Text
   underlined with `===` or `---` is not a heading here, although Joplin's own
   editor shows it as one.
 - **A section** runs from its heading to the next heading of the same or a
@@ -235,7 +244,7 @@ Returns:
 | Field | Type | |
 |---|---|---|
 | `notes` | list | One `joplin_read` result for each note found, in the order asked, each id once |
-| `not_found` | list of strings | The ids that are missing, or hidden by the notebook filter, alike |
+| `not_found` | list of strings | The ids that are missing, hidden by the notebook filter, or locked in Joplin, alike |
 | `budget` | integer | The characters the bodies shared |
 
 A note cut short has `next_offset` set; read the rest, or one section of it,
@@ -354,11 +363,12 @@ Returns:
 | `added` | integer | Notes whose text went into the index for the first time: new notes, and notes that had no text before |
 | `updated` | integer | Notes in the index that changed: embedded again, or emptied (their text left the index) |
 | `deleted` | integer | Notes dropped from the index (deleted in Joplin, or hidden by the filter) |
-
-These three count notes with text. A note with no text has nothing to embed: it is
-looked at once for each version of it and counted in none of them, only in `total`.
 | `total` | integer | The notes visible in Joplin when the sync ran |
 | `model` | string | The embedding model in use |
+
+`added`, `updated` and `deleted` count notes with text. A note with no text has
+nothing to embed: it is looked at once for each version of it and counted in
+none of them, only in `total`.
 
 ```json
 { "added": 3, "updated": 1, "deleted": 0, "total": 158, "model": "BAAI/bge-small-en-v1.5" }
@@ -397,6 +407,7 @@ Returns:
 | `notebook` | string | That notebook's title |
 | `created_time` | string or null | When Joplin created it. Null for a repeat (`already_created: true`), and when Joplin's answer was lost or didn't say |
 | `already_created` | boolean | `true` when this exact request made the note a moment ago and nothing new was written |
+| `chars`, `body_sha256` | integer, string | The text's length and SHA-256, to check it without reading it back |
 
 ```json
 {
@@ -595,8 +606,9 @@ The full rules are in
 ## Errors
 
 A tool that can't do what was asked returns an error with a sentence the
-assistant can pass on. These are the ones the server writes itself;
-[troubleshooting.md](troubleshooting.md) says what to do about each.
+assistant can pass on. These are the main ones the server writes itself; each
+says what was wrong, and [troubleshooting.md](troubleshooting.md) covers the
+ones that need you.
 
 | The error says | It means |
 |---|---|
@@ -620,7 +632,7 @@ assistant can pass on. These are the ones the server writes itself;
 | `This note is in Joplin's trash …`, `… is a conflict copy …`, `… hasn't been decrypted …`, `… isn't Markdown …` | Notes no tool changes |
 | `The change would remove N reference(s) to the note's attachments …` | Keep every `:/<id>` of an attachment |
 | `The change would leave the note as it is, so nothing was written.` | The edit's `old` and `new` are the same |
-| `A note's text can't be replaced with nothing.` | `joplin_replace_note` with an empty text |
+| `A note's text can't be replaced with nothing.` | `joplin_replace_note` with a text of only spaces or line breaks (an empty one is refused before that) |
 | `With a notebook filter set, notebook: must be a search word of its own, with a space before it.` | A search whose `notebook:` the server can't read as a term (inside a phrase, say) while a filter is set |
 | `This note is locked in Joplin, so its text can't be read or changed through Joplin's API. …` | Joplin's note lock protects it; unlock it in Joplin |
 | `The server's limit of N changes a day is reached …` | `SBJ_CHANGES_PER_DAY`; it says when it resets |
@@ -640,12 +652,15 @@ you first:
 
 | Tool | `readOnlyHint` | `destructiveHint` | `idempotentHint` | `openWorldHint` |
 |---|---|---|---|---|
-| The four read tools and `joplin_semantic_search` | `true` | | | `false` |
+| The six read tools, `joplin_semantic_search` and `joplin_changes` | `true` | | | `false` |
 | `joplin_reindex` | `false` | `false` | `true` | `false` |
-| `joplin_create_note` | `false` | `false` | `false` | `false` |
+| `joplin_create_note`, `joplin_create_notes` | `false` | `false` | `false` | `false` |
+| `joplin_edit_note` | `false` | `true` | `false` | `false` |
+| `joplin_replace_note` | `false` | `true` | `true` | `false` |
 
-`joplin_create_note` also carries `"anthropic/requiresUserInteraction": true`
-in its metadata, unless the server runs with
+Every write tool (`joplin_create_note`, `joplin_create_notes`,
+`joplin_edit_note`, `joplin_replace_note`) also carries
+`"anthropic/requiresUserInteraction": true` in its metadata, unless the server runs with
 [`SBJ_ASK_EVERY_TIME=false`](configuration.md#notebooks). Claude Code reads that
 as: ask on every call, with no "don't ask again", and refuse the call where
 nobody can be asked. The two other Claude clients tested act on it too, and not

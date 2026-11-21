@@ -148,12 +148,13 @@ toward Joplin, the same over HTTP as over stdio:
   notes may change. A client can't call, or even see, a tool that isn't there.
 - **Annotations** mark every tool read-only, except `joplin_reindex`, which
   updates the local search index only (never Joplin, never destructive),
-  `joplin_create_note`, which is marked as a write that adds and never destroys,
-  and `joplin_edit_note`, which is marked destructive, because an edit can
-  remove text.
+  `joplin_create_note` and `joplin_create_notes`, which are marked as writes
+  that add and never destroy, and `joplin_edit_note` and `joplin_replace_note`,
+  which are marked destructive, because a change can remove text.
 - **Bounded arguments:** `limit` 1–100 for the keyword search, 1–50 for search
-  by meaning, 1–100 for `joplin_recent`, `days` 1–3650. Anything outside is
-  refused before Joplin is called.
+  by meaning, 1–100 for `joplin_recent` (`days` 1–3650) and `joplin_list_notes`,
+  1–20 ids for `joplin_read_notes`, and for `joplin_changes` `days` 1–90 and
+  `limit` 1–200. Anything outside is refused before Joplin is called.
 - **Long notes are read in pages.** Claude caps a tool result near 150,000
   characters, so `joplin_read` returns at most `max_chars` (default 50,000, up to
   100,000) from `offset`, with `total_chars` and `next_offset` for the rest.
@@ -185,6 +186,7 @@ second-brain-joplin notebooks
 ```
 Notebook filter: 3 of 4 notebooks visible.
 Note creation: allowed in the 1 marked writable.
+Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).
 writable  c7d1e5a09b3f4c2d8e6f1a0b9c8d7e6f  Inbox (4)
 hidden    5a1f0c2e9b7d4f63a8e1c0d2b4f6a7c9  Journal (212)
 visible   9c40d1e7a3b24f58b6c9e0f1a2d3b4c5  Work (57)
@@ -193,8 +195,9 @@ visible   0b7e3f9a1c2d4e5f8a7b6c5d4e3f2a1b    Projects (31)
 
 It lists every notebook with its id and note count (hidden ones too: this is
 your own terminal), marked under the settings it was run with: `hidden`,
-`visible`, or `writable` where a note may also be created
-([Creating notes](#creating-notes)). Add `--env-file` to read the settings from
+`visible`, `writable` where a note may also be created
+([Creating notes](#creating-notes)), `editable` where notes may be changed
+([Changing notes](#changing-notes)), or `writable+editable`. Add `--env-file` to read the settings from
 the server's env file.
 
 What a filter changes:
@@ -334,7 +337,7 @@ carries the mark. Know what you give up:
 
 - **It applies to every client of that server,** not only the one you did it
   for.
-- **Without the mark, a client treats `joplin_create_note` like any other tool
+- **Without the mark, a client treats the write tools like any other tool
   that writes.** Claude Code follows its ordinary permission rules, so an allow
   rule or "don't ask again" stops it asking. Claude Duet created notes without
   asking at all when tested. Claude's apps in Auto mode can do the same, unless
@@ -342,7 +345,8 @@ carries the mark. Know what you give up:
 - **What the server enforces stays as it is** ([below](#what-the-server-enforces)):
   the listed notebooks only, the size limits, a record of every note, and no
   second copy from a repeat. A note you didn't ask for can land in a notebook
-  you listed. Nothing can be changed, moved or deleted.
+  you listed, and with `SBJ_EDIT_NOTEBOOKS` a note there can be changed without
+  asking you (a copy is still kept first). Nothing is moved or deleted.
 
 Only `0`, `false`, `no` or `off` turns it off. A value that is neither a yes nor
 a no stops the server from starting, so a typo can't pass for either. With note
@@ -417,8 +421,10 @@ server's own rules are what make a change safe:
   ([`SBJ_UNDO_DIR`](configuration.md#changing-notes), 90 days). If that copy
   can't be written, nothing is changed. `second-brain-joplin restore` puts a
   copy back ([the command](configuration.md#second-brain-joplin-restore)).
-- **A daily limit.** `SBJ_CHANGES_PER_DAY` (100) changes a day, all tools
-  together, counted from the copies so a restart doesn't reset it.
+- **A daily limit.** `SBJ_CHANGES_PER_DAY` (100) changes a day, all tools and
+  restores together, counted from the copies so a restart doesn't reset it. A
+  change counts unless it is known to have failed; new notes don't count. It
+  resets at the server's local midnight.
 - **Only what it means to change.** Joplin's API changes whatever properties a
   request carries, so each request carries one: the text, or the title.
 - **One at a time.** Two changes to one note run one after the other, and the
@@ -609,7 +615,9 @@ Cowork. Free accounts can add one custom connector.
 | `SBJ_REPLACE` | `false` | `true` adds the tool that rewrites a whole note |
 | `SBJ_UNDO_DIR` / `SBJ_UNDO_DAYS` / `SBJ_UNDO_MAX_MB` | see [configuration](configuration.md#changing-notes) / `90` / `500` | The copies kept before each change |
 | `SBJ_CHANGES_PER_DAY` | `100` | The most changes in a day |
-| `SBJ_ASK_EVERY_TIME` | `true` | `false` leaves off the mark that asks Claude's clients to check with you before each note |
+| `SBJ_CREATE_NOTES_MAX` | `0` (off) | Up to this many notes (at most 20) in one call of `joplin_create_notes` |
+| `SBJ_ASK_EVERY_TIME` | `true` | `false` leaves off the mark that asks Claude's clients to check with you before each note or change |
+| `SBJ_JOPLIN_TIMEOUT` / `SBJ_JOPLIN_CONNECT_TIMEOUT` | `10` / `3` | Seconds Joplin has to answer, and to accept the connection |
 | `SBJ_RATE_LIMIT_PER_MINUTE` | `60` | Tool calls per caller; 0 = off |
 | `SBJ_SYNC_INTERVAL_MINUTES` | `15` | Background index sync; 0 = off |
 
