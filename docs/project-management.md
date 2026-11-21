@@ -61,6 +61,8 @@ answer *when* a piece of work ships; there are deliberately no `phase-*` labels
 | **v0.4 — Remote Access** | Streamable HTTP with GitHub sign-in, deployed as a Claude custom connector |
 | **v0.5 — Write Workflow** | Notebook filter; note creation you allow and approve |
 | **v1.0 — Publish** | PyPI release, full docs, Joplin templates |
+| **v1.2 — Edit** | Change notes safely; search results that say where the match is; reading by section |
+| **v1.3 — Organise** | Move, trash, tags, to-dos, notebooks and attachments, under the same rules |
 
 ## Triage
 

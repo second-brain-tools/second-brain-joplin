@@ -56,3 +56,7 @@ milestones:
     description: "Human-gated note creation"
   - title: "v1.0 — Publish"
     description: "PyPI release, full docs, Joplin note templates"
+  - title: "v1.2 — Edit"
+    description: "Change notes safely; search results that say where the match is; reading by section"
+  - title: "v1.3 — Organise"
+    description: "Move, trash, tags, to-dos, notebooks and attachments, under the same rules"
