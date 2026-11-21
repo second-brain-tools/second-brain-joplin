@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The README compares this server with Joplin's built-in MCP server**
+  (Joplin 3.7, a beta feature, off by default): when Joplin's own is the
+  simpler choice, what this one adds (use from anywhere, sign-in, hidden
+  notebooks, write limits, a log of calls), and the aim to match every tool of
+  Joplin's under those rules in 1.2 and 1.3. The Roadmap lists both.
 - **`SBJ_JOPLIN_TIMEOUT` and `SBJ_JOPLIN_CONNECT_TIMEOUT`** (#86): how long
   Joplin has to answer a request (10 seconds, as before) and to accept the
   connection (3 seconds). A value that isn't a number of seconds above 0 stops

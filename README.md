@@ -133,6 +133,35 @@ fresh incrementally — only notes changed since the last sync are re-embedded.
 
 ---
 
+## vs. Joplin's built-in MCP server
+
+Since 3.7, Joplin Desktop has an MCP server of its own (Settings → AI → "Enable
+MCP server", a beta feature, off by default). If your AI client runs on the same
+computer as Joplin and may see every notebook, it is the simplest choice:
+nothing to install, and it can already edit notes, move them to the trash and
+manage tags. second-brain-joplin is for the cases it doesn't cover:
+
+| | Joplin's built-in server | second-brain-joplin |
+|---|---|---|
+| Where the client can be | The same computer only | The same computer, or anywhere: a Claude custom connector for the web and phone apps |
+| Sign-in | Joplin's Web Clipper token, in the address of each request | The token locally; remotely, GitHub sign-in limited to the accounts you list |
+| Which notebooks | All of them | The ones you choose; hidden notebooks are left out of every tool |
+| Where it can write | Anywhere, one switch per tool | Only the notebooks you list |
+| What it can change | Create, edit, trash, tags, notebooks | New notes only |
+| A record of calls | Joplin's Web Clipper log has one line per request: its address, token included, not which tool ran. No rate limit | In HTTP mode, one log line per call (tool, caller, outcome, time), never the token, and a rate limit per caller |
+| Search by meaning | Joplin's AI features must be on | A local index of its own |
+| Clients | Ones that speak MCP over HTTP | stdio and HTTP |
+
+Compared with Joplin 3.7.24 (November 2026). Joplin's server is in beta and
+changing quickly, so check its own documentation. The two can run side by side.
+
+The aim is that everything the built-in server can do, this one can do too,
+under the same filter, sign-in and log. Editing, richer search and reading by
+section come in 1.2; the trash, moving notes, tags, to-dos and new notebooks in
+1.3 (see the [Roadmap](#roadmap)).
+
+---
+
 ## vs. second-brain-mcp (Obsidian)
 
 | | [second-brain-mcp](https://github.com/noesskeetit/second-brain-mcp) | second-brain-joplin |
@@ -177,6 +206,8 @@ The [PARA method](https://fortelabs.com/blog/para/) works well with Joplin. See 
 | [v0.4 — Remote Access](https://github.com/second-brain-tools/second-brain-joplin/milestone/6) | Streamable HTTP, GitHub sign-in, Claude custom connector | Done |
 | [v0.5 — Write Workflow](https://github.com/second-brain-tools/second-brain-joplin/milestone/4) | Notebook filter; note creation you allow and approve | Done |
 | [v1.0 — Publish](https://github.com/second-brain-tools/second-brain-joplin/milestone/5) | PyPI, full docs, templates | Done |
+| [v1.2 — Edit](https://github.com/second-brain-tools/second-brain-joplin/milestone/7) | Change notes safely; search results that say where the match is; reading by section | Planned |
+| [v1.3 — Organise](https://github.com/second-brain-tools/second-brain-joplin/milestone/8) | Move, trash, tags, to-dos, notebooks and attachments | Planned |
 
 ---
 
