@@ -489,8 +489,11 @@ then `prepend`.
   line of text and before the next heading of the same or a higher level, so
   after its subsections. The rules for headings and sections are
   [`joplin_read`'s](#joplin_read): `#` headings outside code blocks only.
-- **Inserted text takes the note's own line endings** (Windows' `\r\n` or
-  `\n`). Everything else in the note stays as it was, byte for byte.
+- **Line endings.** An `old` is looked for as written, and in the note's own
+  line endings (Windows' `\r\n` or `\n`), so `\n` finds text in a `\r\n` note;
+  across the two it must appear once. Inserted text takes the note's own line
+  endings. Everything else in the note stays as it was, byte for byte.
+- **A note with no title** is named by `title: ""`.
 - The title, notebook, tags and creation date don't change.
 
 Returns:
@@ -577,11 +580,11 @@ which notebooks every tool can see:
 | Tool | With a filter |
 |---|---|
 | `joplin_overview` | Lists visible notebooks only. A visible notebook under a hidden one moves to the top of the tree |
-| `joplin_search` | Leaves hidden notes out, and keeps reading until `limit` is filled or 20 pages are read. `notebook:` and `-notebook:` match visible notebooks only: a hidden notebook answers like one that doesn't exist, even when its sub-notebook is visible |
+| `joplin_search` | Leaves hidden notes out, and keeps reading until `limit` is filled or 20 pages are read. `notebook:` and `-notebook:` match visible notebooks only: a hidden notebook answers like one that doesn't exist, even when its sub-notebook is visible. The server reads the query as Joplin does (a term starts after a space or a closing quote); a `notebook:` it can't read as a term of its own, such as one inside a phrase, refuses the search |
 | `joplin_recent` | Leaves hidden notes out, and keeps reading until `limit` is filled |
 | `joplin_list_notes` | Answers for a hidden notebook exactly as for one that doesn't exist |
 | `joplin_changes` | Leaves out changes to notes the filter hides now |
-| `joplin_read`, `joplin_read_notes` | Answer for a hidden note exactly as for one that doesn't exist. `notebook_path` starts at the topmost visible notebook, so a hidden parent's name never appears. An attachment that a hidden note also uses is left out, as if it didn't exist |
+| `joplin_read`, `joplin_read_notes` | Answer for a hidden note exactly as for one that doesn't exist, a locked one included. `notebook_path` starts at the topmost visible notebook, so a hidden parent's name never appears. `attachments` are the ones the note's own text refers to |
 | `joplin_semantic_search` | Returns only notes that are visible at that moment |
 | `joplin_reindex` | Indexes visible notes only, and drops notes that became hidden |
 | `joplin_create_note` | Can't write to a hidden notebook, whatever `SBJ_WRITE_NOTEBOOKS` lists |
@@ -618,6 +621,8 @@ assistant can pass on. These are the ones the server writes itself;
 | `The change would remove N reference(s) to the note's attachments …` | Keep every `:/<id>` of an attachment |
 | `The change would leave the note as it is, so nothing was written.` | The edit's `old` and `new` are the same |
 | `A note's text can't be replaced with nothing.` | `joplin_replace_note` with an empty text |
+| `With a notebook filter set, notebook: must be a search word of its own, with a space before it.` | A search whose `notebook:` the server can't read as a term (inside a phrase, say) while a filter is set |
+| `This note is locked in Joplin, so its text can't be read or changed through Joplin's API. …` | Joplin's note lock protects it; unlock it in Joplin |
 | `The server's limit of N changes a day is reached …` | `SBJ_CHANGES_PER_DAY`; it says when it resets |
 | `The server couldn't keep a copy of the note before changing it, so nothing was changed. …` | The journal folder can't be written; the server's log says why |
 | `… The change may or may not have been made: read the note to see …` | Joplin took the request and didn't answer; a repeat won't change it twice |

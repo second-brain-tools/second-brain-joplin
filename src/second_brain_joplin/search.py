@@ -24,11 +24,87 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
-_NOTEBOOK_TERM = re.compile(r'(?<!\S)(-?)notebook:("[^"]*"?|\S+)', re.IGNORECASE)
 _FILTER_TERM = re.compile(r'(?<!\S)-?[A-Za-z]+:("[^"]*"?|\S+)')
 _PHRASE = re.compile(r'"([^"]+)"')
 
 SNIPPET_LENGTH = 200
+
+# Joplin 3.7's search filters (packages/lib/services/search/filterParser.ts).
+VALID_FILTERS = frozenset(
+    {
+        "any",
+        "title",
+        "body",
+        "tag",
+        "notebook",
+        "created",
+        "updated",
+        "type",
+        "iscompleted",
+        "due",
+        "latitude",
+        "longitude",
+        "altitude",
+        "resource",
+        "sourceurl",
+        "id",
+    }
+)
+
+
+@dataclass(frozen=True)
+class Term:
+    """One term of a query as Joplin splits it, with where it is in the query."""
+
+    name: str  # the filter, lower case, without its "-"; "_" for a plain word
+    value: str
+    negated: bool
+    start: int
+    end: int
+
+
+def terms(query: str) -> list[Term]:
+    """Split a query exactly as Joplin's ``getTerms`` does.
+
+    A space outside quotes ends a term; so does a closing quote. A filter name is
+    recognised before a ``:`` only at the start of a term, in any case, with or
+    without a leading ``-``.
+    """
+    found: list[Term] = []
+    in_quote = in_term = False
+    column, current, begun = "_", "", 0
+
+    def push(at: int) -> None:
+        nonlocal column, current
+        negated = column.startswith("-")
+        found.append(Term(column.lstrip("-"), current, negated, begun, at))
+        column, current = "_", ""
+
+    for index, char in enumerate(query):
+        if not current and column == "_" and char != " ":
+            begun = index
+        if char == '"':
+            current += char
+            if in_quote:
+                push(index + 1)
+                in_quote = False
+            else:
+                in_quote = True
+            continue
+        if char == " " and not in_quote:
+            in_term = False
+            if current:
+                push(index)
+            continue
+        if char == ":" and not in_quote and not in_term:
+            lowered = current.lower()
+            if lowered in VALID_FILTERS or (lowered[:1] == "-" and lowered[1:] in VALID_FILTERS):
+                column, current, in_term = lowered, "", True
+                continue
+        current += char
+    if current:
+        push(len(query))
+    return found
 
 
 @dataclass
@@ -38,6 +114,9 @@ class NotebookTerms:
     query: str  # the query with the `-notebook:` terms taken out
     include: list[str] = field(default_factory=list)  # patterns, quotes trimmed
     exclude: list[str] = field(default_factory=list)
+    # Some "notebook:" is left in the query that isn't one of the terms above (it sits
+    # inside a phrase, say). With a filter set, such a query is refused.
+    unread: bool = False
 
 
 def _trim(value: str) -> str:
@@ -45,21 +124,27 @@ def _trim(value: str) -> str:
 
 
 def notebook_terms(query: str) -> NotebookTerms:
-    """Split out the query's `notebook:` and `-notebook:` terms."""
-    terms = NotebookTerms(query=query)
+    """Split out the query's `notebook:` and `-notebook:` terms, as Joplin reads them."""
+    result = NotebookTerms(query=query)
     kept: list[str] = []
     last = 0
-    for match in _NOTEBOOK_TERM.finditer(query):
-        value = _trim(match.group(2))
-        if match.group(1):
-            terms.exclude.append(value)
-            kept.append(query[last : match.start()])
-            last = match.end()
+    for term in terms(query):
+        if term.name != "notebook":
+            continue
+        if term.negated:
+            result.exclude.append(_trim(term.value))
+            kept.append(query[last : term.start])
+            last = term.end
         else:
-            terms.include.append(value)
+            result.include.append(_trim(term.value))
     kept.append(query[last:])
-    terms.query = " ".join("".join(kept).split())
-    return terms
+    result.query = " ".join("".join(kept).split())
+    leftover = query
+    for term in sorted(terms(query), key=lambda t: -t.start):
+        if term.name == "notebook":
+            leftover = leftover[: term.start] + " " + leftover[term.end :]
+    result.unread = "notebook:" in leftover.lower()
+    return result
 
 
 def like(pattern: str) -> re.Pattern[str]:
@@ -72,7 +157,8 @@ def like(pattern: str) -> re.Pattern[str]:
             parts.append(".")
         else:
             parts.append(re.escape(char))
-    return re.compile("".join(parts), re.IGNORECASE | re.DOTALL)
+    # ASCII only, as SQLite's LIKE: never match more than Joplin does.
+    return re.compile("".join(parts), re.IGNORECASE | re.DOTALL | re.ASCII)
 
 
 def matching(patterns: Iterable[str], titles: dict[str, str]) -> set[str]:
@@ -99,9 +185,16 @@ def keywords(query: str) -> list[str]:
 
 
 def first_match(body: str, words: Sequence[str]) -> int | None:
-    """Where the earliest of ``words`` first occurs in ``body``, ignoring case."""
-    lowered = body.lower()
-    found = [i for i in (lowered.find(w) for w in words if w) if i >= 0]
+    """Where the earliest of ``words`` first occurs in ``body``, ignoring case.
+
+    Searched in ``body`` itself, not a lower-cased copy, whose offsets can differ.
+    """
+    found = []
+    for word in words:
+        if word:
+            hit = re.search(re.escape(word), body, re.IGNORECASE)
+            if hit:
+                found.append(hit.start())
     return min(found) if found else None
 
 

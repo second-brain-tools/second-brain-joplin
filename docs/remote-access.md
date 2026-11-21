@@ -210,8 +210,10 @@ What a filter changes:
   sub-notebook of it is visible.
 - **`joplin_read` and `joplin_read_notes`** answer for a hidden note exactly as
   for a note that doesn't exist. A note's notebook path starts at the topmost
-  visible notebook, so a hidden parent's name isn't shown, and an attachment that
-  a hidden note also uses is left out of a visible note's list.
+  visible notebook, so a hidden parent's name isn't shown. A note's attachments
+  are the ones its own text refers to: leaving out one that a hidden note also
+  uses would show that it does. A locked note that the filter hides answers as
+  missing too, though Joplin refuses its text with "locked".
 - **Semantic search** never indexes a hidden note, and drops one that becomes
   hidden (it moved, its notebook moved, or you changed the filter) at the next
   sync. What a search returns doesn't rest on that, though: every search asks

@@ -166,6 +166,10 @@ class Journal:
             return []
         found = []
         for path in sorted(self.directory.glob("*.json")):
+            # The name starts with the time, so older files are passed over unread.
+            stamp = _stamp(path)
+            if stamp is not None and stamp < since:
+                continue
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 entry = Entry(path=path, **{k: data[k] for k in _FIELDS})
@@ -207,10 +211,13 @@ class Journal:
         removed = 0
         kept: list[tuple[Path, int, float]] = []
         for path in files:
+            at_or_none = _stamp(path)
+            if at_or_none is None:
+                continue
+            at = at_or_none
             try:
-                at = int(path.name.split("-", 1)[0]) / 1_000_000
                 size = path.stat().st_size
-            except (ValueError, OSError):
+            except OSError:
                 continue
             if now - at > self.days * DAY:
                 path.unlink(missing_ok=True)
@@ -225,6 +232,14 @@ class Journal:
             total -= size
             removed += 1
         return removed
+
+
+def _stamp(path: Path) -> float | None:
+    """When an entry was made, from its file name; None for a name that isn't one."""
+    try:
+        return int(path.name.split("-", 1)[0]) / 1_000_000
+    except ValueError:
+        return None
 
 
 _FIELDS = (

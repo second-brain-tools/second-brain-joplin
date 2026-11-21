@@ -6,6 +6,7 @@ the note's title as it is now. Never any text, and never a note the notebook
 filter hides.
 """
 
+import asyncio
 from typing import Annotated
 
 from fastmcp import Context, FastMCP
@@ -39,7 +40,8 @@ def register(mcp: FastMCP) -> None:
         """
         app = app_context(ctx)
         journal = app.journal()
-        entries = list(reversed(journal.entries(since=journal.clock() - days * DAY)))
+        since = journal.clock() - days * DAY
+        entries = list(reversed(await asyncio.to_thread(journal.entries, since=since)))
         out: list[Change] = []
         try:
             scope = scope_of(app.settings, await app.client.get_folders())
@@ -47,7 +49,8 @@ def register(mcp: FastMCP) -> None:
                 if len(out) >= limit:
                     break
                 try:
-                    note = await app.client.get_note(entry.note_id)
+                    # No body: Joplin refuses a locked note's, and the title is all needed.
+                    note = await app.client.get_note(entry.note_id, fields="id,title,parent_id")
                 except JoplinNotFoundError:
                     if not scope.allows(entry.old_notebook):
                         continue

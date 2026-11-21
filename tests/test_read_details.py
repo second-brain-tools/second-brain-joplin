@@ -107,17 +107,22 @@ async def test_the_path_starts_at_the_topmost_visible_notebook(
     assert "Projects" not in str(read) and "Barn" not in str(read)
 
 
-async def test_an_attachment_a_hidden_note_also_uses_is_left_out(
+async def test_a_visible_notes_attachments_are_listed_whatever_else_uses_them(
     joplin: FakeJoplin, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Leaving one out would tell the caller that a hidden note uses it."""
     visible = joplin.note("Visible", "![](:/r)", joplin.ids["barn"])
     hidden = joplin.note("Hidden", "![](:/r)", joplin.ids["private"])
-    shared = joplin.attach(visible, "secret-scan.pdf", "application/pdf")
+    shared = joplin.attach(visible, "scan.pdf", "application/pdf")
     joplin.refer(hidden, shared)
     own = joplin.attach(visible, "own.jpg")
-    assert {a["id"] for a in (await _read(visible))["attachments"]} == {shared, own}  # no filter
+    unfiltered = {a["id"] for a in (await _read(visible))["attachments"]}
     monkeypatch.setenv("SBJ_EXCLUDE_NOTEBOOKS", "Private")
-    assert [a["id"] for a in (await _read(visible))["attachments"]] == [own]
+    filtered = {a["id"] for a in (await _read(visible))["attachments"]}
+    assert unfiltered == filtered == {shared, own}
+    assert not any(
+        "/resources/" in path for path in joplin.requests
+    )  # nobody asked who else uses it
 
 
 @pytest.mark.parametrize("form", ["{id}", ":/{id}", "joplin://x-callback-url/openNote?id={id}"])

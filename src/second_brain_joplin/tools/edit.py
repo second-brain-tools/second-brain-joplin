@@ -18,7 +18,6 @@ as it was, byte for byte.
 """
 
 import json
-import re
 from typing import Annotated
 
 from fastmcp import Context, FastMCP
@@ -40,7 +39,6 @@ Checksum = Annotated[
         description="body_sha256 from the joplin_read of the note this change is made on.",
     ),
 ]
-_TRAILING_BLANK = re.compile(r"(?:\r\n|\n|\r)[ \t]*(?:(?:\r\n|\n|\r)[ \t]*)*\Z")
 
 
 class TextEdit(BaseModel):
@@ -98,10 +96,19 @@ def in_style(text: str, newline: str) -> str:
 
 
 def apply_edits(body: str, edits: list[TextEdit]) -> str:
-    newline = line_ending(body)
+    """Apply each edit in turn: ``old`` must name one place in the note.
+
+    It is looked for as written, and in the note's own line endings (a model often
+    sends ``\n`` for a note written with ``\r\n``); between the two it must appear
+    exactly once. Text inserted for a match in the note's style takes that style.
+    """
     for number, edit in enumerate(edits, start=1):
-        old = in_style(edit.old, newline)
-        found = occurrences(body, old)
+        newline = line_ending(body)
+        styled = in_style(edit.old, newline)
+        as_written = occurrences(body, edit.old)
+        in_note_style = occurrences(body, styled) if styled != edit.old else 0
+        found = as_written + in_note_style
+        old, new = (edit.old, edit.new) if as_written else (styled, in_style(edit.new, newline))
         if found == 0:
             raise ToolError(
                 f"Edit {number}: its old text isn't in the note (after the edits before it), "
@@ -113,7 +120,7 @@ def apply_edits(body: str, edits: list[TextEdit]) -> str:
                 f"Edit {number}: its old text appears {found} times, so nothing was changed. "
                 "Include more of the text around it, so that it appears once."
             )
-        body = body.replace(old, in_style(edit.new, newline), 1)
+        body = body.replace(old, new, 1)
     return body
 
 
@@ -133,8 +140,12 @@ def apply_append(body: str, append: Append) -> str:
     except SectionError as exc:
         raise ToolError(f"{exc} Nothing was changed.") from exc
     part = body[section.start : section.end]
-    blank = _TRAILING_BLANK.search(part)
-    at = section.start + (blank.start() if blank else len(part))
+    # After the section's last line of text: the end of that line, before the blank
+    # lines that end the section. A scan, not a regular expression, so a long run
+    # of blank lines can't make it slow.
+    content = len(part.rstrip(" \t\r\n"))
+    breaks = [i for i in (part.find("\r", content), part.find("\n", content)) if i >= 0]
+    at = section.start + (min(breaks) if breaks else len(part))
     return body[:at] + newline + text.rstrip("\r\n") + body[at:]
 
 
@@ -154,9 +165,11 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
         title: Annotated[
             str,
             Field(
-                min_length=1,
                 max_length=MAX_TITLE_CHARS,
-                description="The note's current title, exactly as joplin_read gave it.",
+                description=(
+                    "The note's current title, exactly as joplin_read gave it "
+                    "(empty for a note with no title)."
+                ),
             ),
         ],
         expected_sha256: Checksum,

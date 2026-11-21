@@ -73,8 +73,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   as well as an id (`:/<id>`, or `joplin://x-callback-url/openNote?id=<id>`).
   `joplin_read_notes` takes up to 20 ids; their texts share 40,000 characters,
   short notes whole and the rest split over the long ones, and missing or
-  hidden ids are listed alike in `not_found`. With a notebook filter, an
-  attachment that a hidden note also uses is left out.
+  hidden ids are listed alike in `not_found` (a locked note too).
+  `attachments` are the ones the note's own text refers to.
 - **Search results say where the match is** (#97). Each `joplin_search` hit
   gains `notebook_id`, `updated_time`, a `snippet` around the first word of the
   query found in the text, and the `section` and `section_heading` that hold

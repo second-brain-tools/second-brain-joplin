@@ -9,9 +9,9 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from ..context import app_context
-from ..errors import JoplinError, JoplinNotFoundError, NotebookFilterError
+from ..errors import JoplinAPIError, JoplinError, JoplinNotFoundError, NotebookFilterError
 from ..failure import tool_error
-from ..joplin_client import JoplinClient, JsonDict
+from ..joplin_client import LOCKED_MESSAGE, JoplinClient, JsonDict
 from ..markdown import SectionError, find_section, section_at
 from ..markdown import outline as _outline
 from ..models import (
@@ -43,6 +43,7 @@ from ..scope import (
     note_id_of,
     scope_of,
     subtrees,
+    visible_note,
 )
 from ..search import first_match, keywords, matching, notebook_terms, snippet
 from .annotations import READ_ONLY
@@ -155,18 +156,15 @@ async def _details(
     """The facts about a visible note beyond its text: notebook, tags, to-do, attachments.
 
     Tags are one list for the whole vault, so they are given only as properties of
-    this note. An attachment can be referred to by any note, including one a caller
-    wrote itself, so with a filter set it is listed only when no hidden note refers
-    to it: otherwise it is left out, as if it didn't exist.
+    this note. Attachments are the ones this note refers to, whatever other notes
+    use them: leaving out one that a hidden note also uses would tell the caller
+    that it does, and a caller can only refer to an attachment whose 32-character
+    id it already has.
     """
     path = notebook_path(folders, scope, note.get("parent_id", ""))
     tags = sorted(t.get("title", "") for t in await client.get_note_tags(note["id"]))
     attachments = []
     for resource in await client.get_note_resources(note["id"]):
-        if scope.visible is not None:
-            users = await client.get_resource_notes(resource["id"])
-            if not all(scope.allows_note(user) for user in users):
-                continue
         attachments.append(
             Attachment(
                 id=resource["id"],
@@ -250,6 +248,11 @@ def register(mcp: FastMCP) -> None:
                 folders, scope = [], UNFILTERED
             keep = scope.allows_note
             sent = query
+            if scope.visible is not None and terms.unread:
+                raise ToolError(
+                    "With a notebook filter set, notebook: must be a search word of its own, "
+                    "with a space before it."
+                )
             if scope.visible is not None and (terms.include or terms.exclude):
                 visible = {f["id"]: f.get("title", "") for f in folders if scope.allows(f["id"])}
 
@@ -319,10 +322,8 @@ def register(mcp: FastMCP) -> None:
         try:
             folders = await app.client.get_folders()
             scope = scope_of(app.settings, folders)
-            note = await app.client.get_note(note_id_of(note_id))
-            if not scope.allows_note(note):
-                # The same answer as a note that doesn't exist.
-                raise JoplinNotFoundError()
+            # A hidden note gets the same answer as a note that doesn't exist.
+            note = await visible_note(app.client, scope, note_id_of(note_id))
             details = await _details(app.client, scope, folders, note)
         except (JoplinError, NotebookFilterError) as exc:
             raise tool_error(exc) from exc
@@ -385,12 +386,14 @@ def register(mcp: FastMCP) -> None:
             scope = scope_of(app.settings, folders)
             for wanted_id in wanted:
                 try:
-                    note = await app.client.get_note(wanted_id)
-                except JoplinNotFoundError:
+                    note = await visible_note(app.client, scope, wanted_id)
+                except JoplinNotFoundError:  # missing and hidden alike
                     not_found.append(wanted_id)
                     continue
-                if not scope.allows_note(note):
-                    not_found.append(wanted_id)  # the same answer as a missing note
+                except JoplinAPIError as exc:
+                    if str(exc) != LOCKED_MESSAGE:
+                        raise
+                    not_found.append(wanted_id)  # locked: its text can't be read
                     continue
                 found.append((note, await _details(app.client, scope, folders, note)))
         except (JoplinError, NotebookFilterError) as exc:

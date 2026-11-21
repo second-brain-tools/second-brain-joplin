@@ -36,9 +36,11 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
         title: Annotated[
             str,
             Field(
-                min_length=1,
                 max_length=MAX_TITLE_CHARS,
-                description="The note's current title, exactly as joplin_read gave it.",
+                description=(
+                    "The note's current title, exactly as joplin_read gave it "
+                    "(empty for a note with no title)."
+                ),
             ),
         ],
         body: Annotated[

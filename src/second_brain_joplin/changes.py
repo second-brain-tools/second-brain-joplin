@@ -26,8 +26,11 @@ All of it runs under a lock for the note, so two changes to one note never inter
 Audit lines name the tool, the note's id and the caller: never a title or text.
 """
 
+import asyncio
+import functools
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -40,14 +43,13 @@ from .errors import (
     JoplinAuthError,
     JoplinConnectionError,
     JoplinError,
-    JoplinNotFoundError,
     NotebookFilterError,
 )
 from .failure import tool_error
 from .journal import JournalError
 from .models import MAX_NOTE_CHARS, ChangedNote, epoch_ms_to_iso
 from .recent import request_key
-from .scope import WriteTargets, edit_targets_of, note_id_of, scope_of
+from .scope import WriteTargets, edit_targets_of, note_id_of, scope_of, visible_note
 
 audit_logger = logging.getLogger("second_brain_joplin.audit")
 logger = logging.getLogger("second_brain_joplin.changes")
@@ -59,6 +61,11 @@ RESOURCE_REF = r":/([0-9a-fA-F]{32})"
 
 def sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def references(text: str) -> set[str]:
+    """The ids a text refers to as ``:/<id>``, the way Joplin links an attachment."""
+    return {found.lower() for found in re.findall(RESOURCE_REF, text)}
 
 
 @dataclass(frozen=True)
@@ -125,9 +132,7 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
             folders = await app.client.get_folders()
             scope = scope_of(app.settings, folders)
             targets = edit_targets_of(app.settings, folders)
-            note = await app.client.get_note(note_id)
-            if not scope.allows_note(note):
-                raise JoplinNotFoundError()  # the same answer as a missing note
+            note = await visible_note(app.client, scope, note_id)  # hidden = missing
         except (JoplinError, NotebookFilterError) as exc:
             raise tool_error(exc) from exc
         notebook_id = str(note.get("parent_id", ""))
@@ -179,7 +184,7 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
             attached = [r["id"] for r in await app.client.get_note_resources(note_id)]
         except JoplinError as exc:
             raise tool_error(exc) from exc
-        dropped = [r for r in attached if r not in new_body]
+        dropped = [r for r in attached if r.lower() not in references(new_body)]
         if dropped:
             raise ToolError(
                 f"The change would remove {len(dropped)} reference(s) to the note's attachments "
@@ -189,7 +194,7 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
 
         journal = app.journal()
         limit = app.settings.changes_per_day
-        if journal.changes_today() >= limit:
+        if await asyncio.to_thread(journal.changes_today) >= limit:
             resets = time.strftime("%Y-%m-%d %H:%M", time.localtime(journal.next_day()))
             raise ToolError(
                 f"The server's limit of {limit} changes a day is reached, so nothing was "
@@ -210,13 +215,16 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
             )
 
         try:
-            entry = journal.record(
-                tool=request.tool,
-                caller=who,
-                note=note,
-                new_chars=len(new_body),
-                old_sha256=current,
-                new_sha256=new_sha,
+            entry = await asyncio.to_thread(
+                functools.partial(
+                    journal.record,
+                    tool=request.tool,
+                    caller=who,
+                    note=note,
+                    new_chars=len(new_body),
+                    old_sha256=current,
+                    new_sha256=new_sha,
+                )
             )
         except JournalError as exc:
             logger.warning("the journal couldn't be written: %s", exc.detail)
@@ -232,12 +240,18 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
             old_sha256=current,
             new_sha256=new_sha,
         )
+        # Remembered before the write: a retry after an answer that got lost (or a
+        # call the client gave up on) finds it, and, while the note holds the new
+        # text, is answered with this instead of failing the checksum. Forgotten
+        # below when the write is known to have failed.
+        app.recent_changes.put(key, result)
         record("sent")
         try:
             answer = await app.client.update_note(note_id, body=new_body)
         except JoplinConnectionError as exc:
             if not exc.maybe_sent:
                 journal.settle(entry, "failed")
+                app.recent_changes.forget(key)
                 record("failed")
                 raise tool_error(exc) from exc
             outcome = await _arrived(app, note_id, new_sha)
@@ -252,6 +266,7 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
             answer = {}
         except JoplinAuthError as exc:
             journal.settle(entry, "failed")
+            app.recent_changes.forget(key)
             record("failed")
             raise tool_error(exc) from exc
         except JoplinError as exc:  # Joplin answered, and the answer was an error
@@ -264,12 +279,13 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
                 ) from exc
             if outcome is False:
                 journal.settle(entry, "failed")
+                app.recent_changes.forget(key)
                 record("failed")
                 raise tool_error(exc) from exc
             answer = {}
         journal.settle(entry, "applied")
         record("applied")
-        journal.prune()
+        await asyncio.to_thread(journal.prune)
         updated = answer.get("updated_time")
         if isinstance(updated, int):
             result = result.model_copy(update={"updated_time": epoch_ms_to_iso(updated)})

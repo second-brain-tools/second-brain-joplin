@@ -189,7 +189,12 @@ async def create_one(
             if await app.client.note_exists(earlier):
                 return done(earlier, repeat=True)
         except JoplinError as exc:
-            raise tool_error(exc) from exc
+            # A request a moment ago may have made this note: it can't be told now.
+            raise Unconfirmed(
+                f"{exc} A note sent a moment ago for this may or may not have been "
+                "created: look in Joplin, or try again in a moment.",
+                earlier,
+            ) from exc
 
     # The id is ours, not Joplin's, so a request whose answer goes missing can
     # be looked up afterwards. Ids only in the log: a title is note content.

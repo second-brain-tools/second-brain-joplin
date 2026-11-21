@@ -357,9 +357,11 @@ class FakeJoplin:
             (exclude if match.group(1) else include).append(value)
             return " "
 
-        words = (
-            re.sub(r'(?<!\S)(-?)notebook:("[^"]*"|\S+)', term, query, flags=re.I).lower().split()
-        )
+        # As Joplin's getTerms: a term starts at the start, after a space, or right
+        # after a closing quote.
+        pattern = r'(?:(?<=\s)|(?<=")|^)(-?)notebook:("[^"]*"|\S+)'
+        words = [w.strip('"') for w in re.sub(pattern, term, query, flags=re.I).lower().split()]
+        words = [w for w in words if w]
 
         def matched(patterns: list[str]) -> set[str]:
             regexes = [
@@ -409,6 +411,14 @@ class FakeJoplin:
         note = self.notes.get(note_id)
         if note is None:
             return httpx.Response(404)
+        fields = request.url.params.get("fields", "")
+        if note.get("is_locked") and (not fields or "body" in fields.split(",")):
+            # Joplin 3.7's note lock: the body is refused, other fields are given.
+            return httpx.Response(
+                403, json={"error": "The body of a locked note cannot be read through the API"}
+            )
+        if fields:
+            return httpx.Response(200, json={k: note[k] for k in fields.split(",") if k in note})
         return httpx.Response(200, json=note)
 
     def _create(self, request: httpx.Request) -> httpx.Response:

@@ -262,8 +262,14 @@ class JoplinClient:
         """
         return await self._get_paginated("/notes", {"fields": "id,updated_time,parent_id"})
 
-    async def get_note(self, note_id: str) -> JsonDict:
-        """Return a single note including its full markdown body."""
+    async def get_note(self, note_id: str, fields: str | None = None) -> JsonDict:
+        """Return a single note including its full markdown body, or only ``fields``.
+
+        Joplin refuses to give a locked note's body; asked for other fields, it answers.
+        """
+        if fields is not None:
+            data_: JsonDict = (await self._get(f"/notes/{note_id}", {"fields": fields})).json()
+            return data_
         params = {
             "fields": "id,title,body,parent_id,created_time,updated_time,encryption_applied,"
             "is_todo,todo_due,todo_completed,deleted_time,is_conflict,markup_language"
@@ -290,12 +296,6 @@ class JoplinClient:
         """The attachments (resources) one note refers to, without their content."""
         return await self._get_paginated(
             f"/notes/{note_id}/resources", {"fields": "id,title,mime,size"}
-        )
-
-    async def get_resource_notes(self, resource_id: str) -> list[JsonDict]:
-        """Every note that refers to an attachment, with its notebook."""
-        return await self._get_paginated(
-            f"/resources/{resource_id}/notes", {"fields": "id,parent_id"}
         )
 
     async def search(

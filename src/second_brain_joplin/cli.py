@@ -15,7 +15,7 @@ from fastmcp.exceptions import ToolError
 from . import __version__
 from .audit import configure_logging
 from .auth import AuthSettings, build_auth
-from .changes import refuse_kind, sha256
+from .changes import references, refuse_kind, sha256
 from .config import (
     CONNECT_TIMEOUT_VAR,
     CREATE_NOTES_CEILING,
@@ -141,6 +141,8 @@ async def run_restore(settings: Settings, note_id: str, pick: int | None, force:
     journal = Journal(settings.undo_dir, days=settings.undo_days, max_mb=settings.undo_max_mb)
     copies = journal.copies_of(note_id)
     if not copies:
+        if pick is not None:
+            raise ServeConfigError(f"no kept copies of {note_id} in {settings.undo_dir}")
         return f"No kept copies of {note_id} in {settings.undo_dir}."
     if pick is None:
         lines = [f"Kept copies of {note_id}, newest first (in {settings.undo_dir}):"]
@@ -163,7 +165,7 @@ async def run_restore(settings: Settings, note_id: str, pick: int | None, force:
         except ToolError as exc:
             raise ServeConfigError(str(exc)) from exc
         attached = [r["id"] for r in await client.get_note_resources(note_id)]
-        dropped = [r for r in attached if r not in chosen.old_body]
+        dropped = [r for r in attached if r.lower() not in references(chosen.old_body)]
         if dropped and not force:
             raise ServeConfigError(
                 f"copy {pick} doesn't refer to {len(dropped)} attachment(s) the note has now, "

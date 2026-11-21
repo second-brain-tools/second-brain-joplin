@@ -23,7 +23,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from .config import Settings
-from .errors import JoplinError, NotebookFilterError
+from .errors import JoplinError, JoplinNotFoundError, NotebookFilterError
 from .joplin_client import JoplinClient, JsonDict
 
 logger = logging.getLogger("second_brain_joplin.scope")
@@ -133,6 +133,23 @@ class _Notebooks:
             found.add(notebook_id)
             pending.extend(self._children.get(notebook_id, []))
         return found
+
+
+async def visible_note(client: JoplinClient, scope: NotebookScope, note_id: str) -> JsonDict:
+    """A note the scope lets through, with its body; JoplinNotFoundError otherwise.
+
+    With a filter set, the note's notebook is asked for first and checked before the
+    body is: Joplin answers a request for a locked note's body with "locked", and a
+    hidden note must get the answer a missing note gets.
+    """
+    if scope.visible is not None:
+        head = await client.get_note(note_id, fields="id,parent_id")
+        if not scope.allows_note(head):
+            raise JoplinNotFoundError()
+    note = await client.get_note(note_id)
+    if not scope.allows_note(note):  # it moved between the two requests
+        raise JoplinNotFoundError()
+    return note
 
 
 def subtrees(folders: Sequence[JsonDict], roots: set[str]) -> set[str]:
