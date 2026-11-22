@@ -11,6 +11,7 @@ import respx
 from fakes import FakeJoplin
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from second_brain_core import env as core_env
 
 from second_brain_joplin import cli
 from second_brain_joplin.search import first_match, like, notebook_terms, terms
@@ -29,7 +30,7 @@ def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("SBJ_UNDO_DIR", str(tmp_path / "undo"))
     monkeypatch.setenv("SBJ_EDIT_NOTEBOOKS", "Kid")
     monkeypatch.setenv("SBJ_WRITE_NOTEBOOKS", "Kid")
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
 
 
 @pytest.fixture

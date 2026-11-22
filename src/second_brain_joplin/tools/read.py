@@ -10,7 +10,7 @@ from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinAPIError, JoplinError, JoplinNotFoundError, NotebookFilterError
-from ..failure import tool_error
+from ..failure import guarded, tool_error
 from ..joplin_client import LOCKED_MESSAGE, JoplinClient, JsonDict
 from ..markdown import SectionError, find_section, section_at
 from ..markdown import outline as _outline
@@ -206,6 +206,7 @@ def register(mcp: FastMCP) -> None:
     """Register the read tools on the given FastMCP server."""
 
     @mcp.tool(annotations=READ_ONLY)
+    @guarded
     async def joplin_overview(ctx: Context) -> list[Notebook]:
         """List the Joplin notebooks as a tree with note counts."""
         app = app_context(ctx)
@@ -218,6 +219,7 @@ def register(mcp: FastMCP) -> None:
         return _build_overview(folders, notes_index, scope)
 
     @mcp.tool(annotations=READ_ONLY)
+    @guarded
     async def joplin_search(
         ctx: Context, query: str, limit: SearchLimit = 10
     ) -> list[SearchResult]:
@@ -282,6 +284,7 @@ def register(mcp: FastMCP) -> None:
         return [_search_result(hit, words) for hit in hits]
 
     @mcp.tool(annotations=READ_ONLY)
+    @guarded
     async def joplin_read(
         ctx: Context,
         note_id: NoteId,
@@ -358,6 +361,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool(annotations=READ_ONLY)
+    @guarded
     async def joplin_read_notes(
         ctx: Context,
         note_ids: Annotated[
@@ -419,6 +423,7 @@ def register(mcp: FastMCP) -> None:
         return NotesRead(notes=notes, not_found=not_found, budget=READ_NOTES_BUDGET)
 
     @mcp.tool(annotations=READ_ONLY)
+    @guarded
     async def joplin_list_notes(
         ctx: Context,
         notebook: Annotated[
@@ -481,6 +486,7 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool(annotations=READ_ONLY)
+    @guarded
     async def joplin_recent(
         ctx: Context,
         days: Annotated[int, Field(ge=1, le=MAX_RECENT_DAYS)] = 7,

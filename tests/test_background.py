@@ -11,6 +11,10 @@ import respx
 from fakes import FakeEmbedder, FakeVectorIndex
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from second_brain_core import env as core_env
+from second_brain_core.remote import HttpOptions, http_app_kwargs
+from second_brain_core.semantic import embedders, stores
+from second_brain_core.semantic.types import SyncStats
 
 from second_brain_joplin import cli, server
 from second_brain_joplin.background import sync_forever
@@ -20,9 +24,6 @@ from second_brain_joplin.errors import (
     NotebookFilterError,
     SemanticUnavailableError,
 )
-from second_brain_joplin.remote import HttpOptions, ServeConfigError, http_options, validate
-from second_brain_joplin.semantic import backends
-from second_brain_joplin.semantic.types import SyncStats
 from second_brain_joplin.server import create_server, make_lifespan
 
 BASE_URL = "http://localhost:41184"
@@ -154,8 +155,8 @@ async def test_stdio_lifespan_is_local_with_no_task(monkeypatch: pytest.MonkeyPa
 
 def _install_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     index = FakeVectorIndex()
-    monkeypatch.setattr(backends, "build_embedder", lambda settings: FakeEmbedder())
-    monkeypatch.setattr(backends, "build_vector_index", lambda settings, model_name: index)
+    monkeypatch.setattr(embedders, "build_embedder", lambda *args: FakeEmbedder())
+    monkeypatch.setattr(stores, "build_vector_index", lambda *args: index)
 
 
 def _mock_vault() -> None:
@@ -204,8 +205,6 @@ async def test_lifespan_is_entered_once_for_many_http_requests(
     """Stateless HTTP must not rebuild the app context (or restart sync) per request."""
     from fastmcp.utilities.tests import asgi_server
 
-    from second_brain_joplin.remote import http_app_kwargs
-
     entries = 0
     real = AppContext
 
@@ -215,7 +214,7 @@ async def test_lifespan_is_entered_once_for_many_http_requests(
         return real(*args, **kwargs)
 
     monkeypatch.setattr(server, "AppContext", counting)
-    kwargs = http_app_kwargs(HttpOptions(no_auth=True))
+    kwargs = http_app_kwargs(HttpOptions(host="127.0.0.1", port=8775, no_auth=True))
     path = kwargs.pop("path")
     async with asgi_server(create_server(remote=True), path=path, **kwargs) as running:
         for _ in range(3):
@@ -227,19 +226,20 @@ async def test_lifespan_is_entered_once_for_many_http_requests(
 # -- options and the CLI ------------------------------------------------------
 
 
-def test_sync_interval_option() -> None:
-    assert http_options(environ={}).sync_interval_minutes == 15
-    assert http_options(environ={"SBJ_SYNC_INTERVAL_MINUTES": "0"}).sync_interval_minutes == 0
-    with pytest.raises(ServeConfigError, match="SBJ_SYNC_INTERVAL_MINUTES"):
-        validate(HttpOptions(no_auth=True, sync_interval_minutes=-5), auth_configured=False)
+def test_a_negative_sync_interval_is_refused_by_serve(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setenv("SBJ_SYNC_INTERVAL_MINUTES", "-5")
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["serve", "--transport", "http", "--no-auth"])
+    assert exc.value.code == 2
 
 
 def test_serve_http_builds_a_remote_server_with_sync(monkeypatch: pytest.MonkeyPatch) -> None:
     built: dict[str, Any] = {}
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
     monkeypatch.setattr(cli, "create_server", lambda **kwargs: built.update(kwargs) or "srv")
     monkeypatch.setattr(cli, "run_http", lambda server, options: None)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(cli, "configure_logging", lambda *a, **k: None)
     monkeypatch.setenv("SBJ_SYNC_INTERVAL_MINUTES", "30")
     cli.main(["serve", "--transport", "http", "--no-auth"])
     assert built["remote"] is True
@@ -264,7 +264,7 @@ def test_reindex_command_prints_counts(
         calls.append(full)
         return STATS
 
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
     monkeypatch.setattr(cli, "run_reindex", fake_run_reindex)
     monkeypatch.delenv("SBJ_NOTEBOOKS", raising=False)
     monkeypatch.delenv("SBJ_EXCLUDE_NOTEBOOKS", raising=False)
@@ -293,7 +293,7 @@ def test_reindex_command_errors_exit_1(
     async def failing(full: bool) -> SyncStats:
         raise error
 
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
     monkeypatch.setattr(cli, "run_reindex", failing)
     with pytest.raises(SystemExit) as exc:
         cli.main(["reindex"])

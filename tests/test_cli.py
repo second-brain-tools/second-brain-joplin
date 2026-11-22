@@ -2,8 +2,6 @@
 
 import logging
 import os
-import subprocess
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -12,13 +10,14 @@ import pytest
 import respx
 from fakes import FakeEmbedder, FakeJoplin, FakeVectorIndex
 from fastmcp import FastMCP
+from second_brain_core import env as core_env
+from second_brain_core.remote import HttpOptions
+from second_brain_core.semantic import embedders, stores
 
 from second_brain_joplin import __version__, cli
 from second_brain_joplin.cli import build_parser
 from second_brain_joplin.config import Settings
-from second_brain_joplin.remote import HttpOptions
 from second_brain_joplin.scope import NotebookScope
-from second_brain_joplin.semantic import backends
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +47,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(name, "")
         monkeypatch.delenv(name)
     # Keep the developer's own .env out of these tests.
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
 
 
 @pytest.fixture
@@ -115,7 +114,7 @@ def test_http_without_sign_in_or_no_auth_is_refused(
 
 def test_http_no_auth_on_loopback_runs(http_calls: list[HttpOptions]) -> None:
     cli.main(["serve", "--transport", "http", "--no-auth", "--port", "9100"])
-    assert http_calls == [HttpOptions(port=9100, no_auth=True)]
+    assert http_calls == [HttpOptions(host="127.0.0.1", port=9100, no_auth=True)]
 
 
 def test_transport_from_environment(
@@ -124,7 +123,7 @@ def test_transport_from_environment(
     monkeypatch.setenv("SBJ_TRANSPORT", "http")
     monkeypatch.setenv("SBJ_PORT", "9200")
     cli.main(["serve", "--no-auth"])
-    assert http_calls == [HttpOptions(port=9200, no_auth=True)]
+    assert http_calls == [HttpOptions(host="127.0.0.1", port=9200, no_auth=True)]
 
 
 def test_bad_transport_in_environment_is_refused(
@@ -157,7 +156,7 @@ def test_env_file_is_loaded_and_set_variables_win(
     env_file.write_text("SBJ_TRANSPORT=http\nSBJ_PORT=9300\nSBJ_HTTP_PATH=/from-file\n")
     monkeypatch.setenv("SBJ_HTTP_PATH", "/from-env")
     cli.main(["serve", "--env-file", str(env_file), "--no-auth"])
-    assert http_calls == [HttpOptions(port=9300, path="/from-env", no_auth=True)]
+    assert http_calls == [HttpOptions(host="127.0.0.1", port=9300, path="/from-env", no_auth=True)]
 
 
 def test_missing_env_file_is_an_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -189,7 +188,7 @@ def test_http_with_sign_in_builds_an_authed_server(
     built: dict[str, Any] = {}
     fake_auth = StaticTokenVerifier(tokens={})
 
-    def fake_build_auth(settings: Any, public_url: str) -> StaticTokenVerifier:
+    def fake_build_auth(_server: Any, settings: Any, public_url: str) -> StaticTokenVerifier:
         built.update(ids=settings.allowed_ids, public_url=public_url)
         return fake_auth
 
@@ -403,14 +402,14 @@ def test_reindex_with_a_wrong_filter_exits_2_and_says_why_once(
     joplin: FakeJoplin, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     index = FakeVectorIndex()
-    monkeypatch.setattr(backends, "build_embedder", lambda settings: FakeEmbedder())
-    monkeypatch.setattr(backends, "build_vector_index", lambda settings, model_name: index)
+    monkeypatch.setattr(embedders, "build_embedder", lambda *args: FakeEmbedder())
+    monkeypatch.setattr(stores, "build_vector_index", lambda *args: index)
     monkeypatch.setenv("SBJ_NOTEBOOKS", "Wrok")
     with pytest.raises(SystemExit) as exc:
         cli.main(["reindex", "--full"])
     assert exc.value.code == 2
     assert capsys.readouterr().err.count("no notebook is titled 'Wrok'") == 1
-    assert index.note_versions() == {}
+    assert index.item_versions() == {}
 
 
 # -- env files and variables that are set to nothing -------------------------------
@@ -425,141 +424,23 @@ def test_a_variable_set_to_nothing_does_not_shadow_the_env_file(
     env_file.write_text("SBJ_EXCLUDE_NOTEBOOKS=Journal\nSBJ_PORT=9400\n")
     monkeypatch.setenv("SBJ_EXCLUDE_NOTEBOOKS", "")
     monkeypatch.setenv("SBJ_PORT", "9500")  # set to something: this one still wins
-    cli.load_env_file(env_file)
+    core_env.load_env_file(env_file)
     assert os.environ["SBJ_EXCLUDE_NOTEBOOKS"] == "Journal"
     assert os.environ["SBJ_PORT"] == "9500"
 
 
-OURS = '[project]\nname = "second-brain-joplin"\n'
-PLANTED = "SBJ_WRITE_NOTEBOOKS=*\nJOPLIN_BASE_URL=http://elsewhere.example\n"
-
-
-def _checkout(tmp_path: Path, pyproject: str | None = OURS, env: str | None = PLANTED) -> Path:
-    """A source checkout's layout under ``tmp_path``; returns the package directory."""
-    root = tmp_path / "clone"
-    package = root / "src" / "second_brain_joplin"
-    package.mkdir(parents=True)
-    if pyproject is not None:
-        (root / "pyproject.toml").write_text(pyproject)
-    if env is not None:
-        (root / ".env").write_text(env)
-    return package
-
-
-def _installed(tmp_path: Path) -> Path:
-    """An installed copy under a home directory, with a ``.env`` planted in the package
-    directory and in every directory above it; returns the package directory."""
-    package = tmp_path / "home/.local/share/uv/tools/sbj/lib/python3.13/site-packages"
-    package = package / "second_brain_joplin"
-    package.mkdir(parents=True)
-    for directory in (package, *package.parents):
-        (directory / ".env").write_text(PLANTED)
-        if directory == tmp_path:
-            break
-    return package
-
-
-def test_a_checkout_reads_its_own_dotenv(tmp_path: Path) -> None:
-    package = _checkout(tmp_path)
-    assert cli.checkout_env_file(package) == tmp_path / "clone" / ".env"
-
-
-def test_a_checkout_without_a_dotenv_reads_none(tmp_path: Path) -> None:
-    assert cli.checkout_env_file(_checkout(tmp_path, env=None)) is None
-
-
-def test_an_installed_copy_reads_no_dotenv_from_any_directory_above_it(tmp_path: Path) -> None:
-    """Not ``~/.env``, not one beside the tool, not one in site-packages: the search
-    used to walk up through all of them."""
-    assert cli.checkout_env_file(_installed(tmp_path)) is None
-
-
-def test_a_copy_in_another_projects_virtual_environment_reads_no_dotenv(tmp_path: Path) -> None:
-    project = tmp_path / "their-project"
-    package = project / ".venv/lib/python3.13/site-packages/second_brain_joplin"
-    package.mkdir(parents=True)
-    (project / "pyproject.toml").write_text('[project]\nname = "their-project"\n')
-    (project / ".env").write_text(PLANTED)
-    assert cli.checkout_env_file(package) is None
-
-
-@pytest.mark.parametrize(
-    "pyproject",
-    [
-        None,  # no pyproject.toml at all
-        '[project]\nname = "something-else"\n',  # another project's checkout
-        '[tool.other]\nname = "second-brain-joplin"\n',  # no [project] table
-        'project = "second-brain-joplin"\n',  # [project] is not a table
-        "[project\nname = ",  # not TOML
-        "\xff\xfe not text",  # not UTF-8
-    ],
-)
-def test_a_directory_that_is_not_this_projects_checkout_reads_no_dotenv(
-    tmp_path: Path, pyproject: str | None
+def test_a_named_env_file_is_the_whole_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, http_calls: list[HttpOptions]
 ) -> None:
-    package = _checkout(tmp_path, pyproject=None)
-    if pyproject is not None:
-        (tmp_path / "clone" / "pyproject.toml").write_bytes(pyproject.encode("latin-1"))
-    assert cli.checkout_env_file(package) is None
-
-
-def test_the_package_directory_defaults_to_where_this_code_is(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    package = _checkout(tmp_path)
-    monkeypatch.setattr(cli, "__file__", str(package / "cli.py"))
-    assert cli.checkout_env_file() == (tmp_path / "clone" / ".env").resolve()
-
-
-def _fastmcp_transport(cwd: Path, **extra_env: str) -> str:
-    """FastMCP's transport setting in a fresh interpreter that imports this package
-    in ``cwd``, with no FASTMCP_* variable set unless ``extra_env`` sets one."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("FASTMCP_")} | extra_env
-    code = "import second_brain_joplin, fastmcp; print(fastmcp.settings.transport)"
-    done = subprocess.run(
-        [sys.executable, "-c", code], cwd=cwd, env=env, capture_output=True, text=True, check=True
-    )
-    return done.stdout.strip()
-
-
-def test_the_working_directorys_dotenv_cannot_set_fastmcps_settings(tmp_path: Path) -> None:
-    """FastMCP reads FASTMCP_* from a ``.env`` in the working directory, the transport
-    among them. A project's ``.env`` must not turn a stdio server into an HTTP one."""
-    (tmp_path / ".env").write_text("FASTMCP_TRANSPORT=http\nFASTMCP_HOST=0.0.0.0\n")
-    assert _fastmcp_transport(tmp_path) == "stdio"
-    # The control: the same file does switch it once the operator names it, so the
-    # line above passes because the file went unread, not because it was harmless.
-    assert _fastmcp_transport(tmp_path, FASTMCP_ENV_FILE=".env") == "http"
-
-
-def test_dotenv_follows_the_same_rule(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    package = _checkout(tmp_path, env="SBJ_NOTEBOOKS=Work\nSBJ_PORT=9400\nSBJ_HOST\n")
-    monkeypatch.undo()  # the real load_dotenv, not the autouse stub
-    monkeypatch.setenv("SBJ_NOTEBOOKS", "")
-    monkeypatch.setenv("SBJ_PORT", "9500")
-    monkeypatch.delenv("SBJ_HOST", raising=False)
-    cli.load_dotenv(package)
-    assert os.environ["SBJ_NOTEBOOKS"] == "Work"
-    assert os.environ["SBJ_PORT"] == "9500"
-    assert "SBJ_HOST" not in os.environ  # a name with no value sets nothing
-
-
-def test_an_installed_server_takes_nothing_from_a_dotenv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Neither a ``.env`` above the install nor the working directory's can switch
-    note creation on or point the server at another Joplin."""
-    package = _installed(tmp_path)
-    monkeypatch.undo()  # the real load_dotenv, not the autouse stub
-    monkeypatch.delenv("SBJ_WRITE_NOTEBOOKS", raising=False)
-    monkeypatch.delenv("JOPLIN_BASE_URL", raising=False)
-    working_directory = tmp_path / "some-project"
-    working_directory.mkdir()
-    (working_directory / ".env").write_text(PLANTED)
-    monkeypatch.chdir(working_directory)
-    cli.load_dotenv(package)
-    assert "SBJ_WRITE_NOTEBOOKS" not in os.environ
-    assert "JOPLIN_BASE_URL" not in os.environ
+    """A checkout's .env is not read as well: it would fill in what the file leaves out."""
+    read: list[str] = []
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: read.append(".env"))
+    env_file = tmp_path / "serve.env"
+    env_file.write_text("SBJ_TRANSPORT=http\n")
+    cli.main(["serve", "--env-file", str(env_file), "--no-auth"])
+    assert read == []
+    cli.main(["serve", "--transport", "http", "--no-auth"])
+    assert read == [".env"]
 
 
 @pytest.mark.parametrize("name", ["SBJ_NOTEBOOKS", "SBJ_EXCLUDE_NOTEBOOKS"])
@@ -741,7 +622,7 @@ def test_ask_every_time_follows_the_usual_order_of_environment_then_env_file(
     env_file = tmp_path / "serve.env"
     env_file.write_text(f"SBJ_ASK_EVERY_TIME={in_file}\n")
     monkeypatch.setenv("SBJ_ASK_EVERY_TIME", exported)
-    cli.load_env_file(env_file)
+    core_env.load_env_file(env_file)
     assert Settings.from_env().ask_every_time is asks
 
 

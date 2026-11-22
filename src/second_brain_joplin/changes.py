@@ -36,8 +36,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from fastmcp.exceptions import ToolError
+from second_brain_core.audit import caller_id, this_calls_client
 
-from .audit import caller_id
 from .context import AppContext
 from .errors import (
     JoplinAuthError,
@@ -202,16 +202,18 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
             )
         new_sha = sha256(new_body)
         who = caller_id()
+        client = this_calls_client()
 
         def record(what: str, level: int = logging.INFO) -> None:
             audit_logger.log(
                 level,
-                "%s %s id=%s notebook=%s caller=%s",
+                "%s %s id=%s notebook=%s caller=%s client=%s",
                 request.tool,
                 what,
                 note_id,
                 notebook_id,
                 who,
+                client,
             )
 
         try:

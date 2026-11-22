@@ -16,9 +16,9 @@ import respx
 from fakes import FakeEmbedder, FakeJoplin, FakeVectorIndex
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from second_brain_core.semantic import embedders, stores
 
 from second_brain_joplin.errors import NOT_FOUND_MESSAGE, NOTEBOOK_FILTER_MESSAGE
-from second_brain_joplin.semantic import backends
 from second_brain_joplin.server import mcp
 
 SECRET = "feelings nobody else should read"
@@ -58,8 +58,8 @@ def vault(joplin: FakeJoplin) -> Vault:
 def index(monkeypatch: pytest.MonkeyPatch) -> FakeVectorIndex:
     """Semantic search on in-memory fakes; the index is returned for inspection."""
     shared = FakeVectorIndex()
-    monkeypatch.setattr(backends, "build_embedder", lambda settings: FakeEmbedder())
-    monkeypatch.setattr(backends, "build_vector_index", lambda settings, model_name: shared)
+    monkeypatch.setattr(embedders, "build_embedder", lambda *args: FakeEmbedder())
+    monkeypatch.setattr(stores, "build_vector_index", lambda *args: shared)
     return shared
 
 
@@ -278,7 +278,7 @@ async def test_semantic_search_never_indexes_or_returns_a_hidden_note(
     monkeypatch.setenv("SBJ_EXCLUDE_NOTEBOOKS", "Journal")
     result = await _call("joplin_semantic_search", query=f"apple {SECRET}")
     assert sorted(_ids(result)) == sorted([vault.roadmap, vault.sprint])
-    assert set(index.note_versions()) == {vault.roadmap, vault.sprint}
+    assert set(index.item_versions()) == {vault.roadmap, vault.sprint}
     assert SECRET not in index.stored_text()
     assert "Diary" not in index.stored_text()
 
@@ -289,7 +289,7 @@ async def test_reindex_counts_only_what_the_filter_shows(
     monkeypatch.setenv("SBJ_NOTEBOOKS", vault.projects)
     result = await _call("joplin_reindex", full=True)
     assert (result["added"], result["total"]) == (1, 1)
-    assert set(index.note_versions()) == {vault.sprint}
+    assert set(index.item_versions()) == {vault.sprint}
 
 
 async def test_changing_the_filter_drops_newly_hidden_notes_from_the_index(
@@ -335,7 +335,7 @@ async def test_every_tool_refuses_while_the_filter_does_not_resolve(
     assert "SBJ_EXCLUDE_NOTEBOOKS: no notebook is titled 'Secret diary'" in caplog.text
     # Nothing was read from Joplin beyond its notebook list, and nothing indexed.
     assert set(vault.joplin.requests) == {"/folders"}
-    assert index.note_versions() == {}
+    assert index.item_versions() == {}
 
 
 async def test_renaming_a_notebook_excluded_by_title_fails_closed(
@@ -383,4 +383,4 @@ async def test_every_tool_refuses_while_a_filter_variable_lists_nothing(
     monkeypatch.setenv("SBJ_NOTEBOOKS", "")
     assert await _error(tool, **args) == NOTEBOOK_FILTER_MESSAGE
     assert set(vault.joplin.requests) <= {"/folders"}
-    assert index.note_versions() == {}
+    assert index.item_versions() == {}

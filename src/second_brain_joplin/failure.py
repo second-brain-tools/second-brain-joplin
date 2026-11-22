@@ -1,21 +1,19 @@
-"""Turning a failure inside a tool into the error an MCP client sees."""
+"""Turning a failure inside a tool into the error an MCP client sees.
 
-import logging
+second-brain-core's rules (``second_brain_core.failure``), bound to this server: a
+planned failure carries its own sentence, a notebook filter that doesn't resolve
+tells the client nothing more, and anything unplanned gets a fixed sentence.
+"""
 
 from fastmcp.exceptions import ToolError
+from second_brain_core import failure
 
-from .errors import NotebookFilterError
+from .identity import SERVER
 
-logger = logging.getLogger("second_brain_joplin.tools")
+# Under @mcp.tool on every tool: nothing unplanned escapes it.
+guarded = failure.guarded(SERVER)
 
 
 def tool_error(exc: Exception) -> ToolError:
-    """The ``ToolError`` for ``exc``, carrying its message to the client.
-
-    A notebook filter that doesn't resolve also gets a log line with the detail.
-    The client is told only that the filter is wrong: the detail can hold the
-    title of a notebook the operator wants hidden.
-    """
-    if isinstance(exc, NotebookFilterError):
-        logger.warning("the notebook filter doesn't resolve: %s", exc.detail)
-    return ToolError(str(exc))
+    """The ``ToolError`` for a planned failure (see ``second_brain_core.failure``)."""
+    return failure.tool_error(SERVER, exc)

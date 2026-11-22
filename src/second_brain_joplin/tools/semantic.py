@@ -15,7 +15,7 @@ from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinError, NotebookFilterError, SemanticUnavailableError
-from ..failure import tool_error
+from ..failure import guarded, tool_error
 from ..models import MAX_SEMANTIC_LIMIT, ReindexResult, SemanticResult
 from .annotations import LOCAL_INDEX_WRITE, READ_ONLY
 
@@ -26,6 +26,7 @@ def register(mcp: FastMCP) -> None:
     # Read-only toward Joplin; with auto-sync on it may refresh the local index
     # first, which changes nothing a client can see except fresher results.
     @mcp.tool(annotations=READ_ONLY)
+    @guarded
     async def joplin_semantic_search(
         ctx: Context, query: str, limit: Annotated[int, Field(ge=1, le=MAX_SEMANTIC_LIMIT)] = 10
     ) -> list[SemanticResult]:
@@ -37,6 +38,7 @@ def register(mcp: FastMCP) -> None:
             raise tool_error(exc) from exc
 
     @mcp.tool(annotations=LOCAL_INDEX_WRITE)
+    @guarded
     async def joplin_reindex(ctx: Context, full: bool = False) -> ReindexResult:
         """Sync the semantic index. ``full=True`` re-embeds every note from scratch."""
         app = app_context(ctx)

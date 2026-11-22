@@ -1,125 +1,25 @@
-"""In-memory fakes for tests: the semantic Protocols, and Joplin's Data API.
+"""In-memory fakes for tests: Joplin's Data API, and the search engine's parts.
 
-Deterministic, dependency-free stand-ins for the real embedder and vector store
-so the orchestration can be exercised without the optional ML/vector libs, and
-a small Joplin (notebooks, notes, search, paging) served through respx.
+A small Joplin (notebooks, notes, search, paging) served through respx. The
+embedder and the index are second-brain-core's own stand-ins
+(``second_brain_core.semantic.testing``), re-exported here.
 """
 
-import hashlib
 import json
-import math
 import re
 from collections.abc import Callable
 from typing import Any
 
 import httpx
 import respx
+from second_brain_core.semantic.testing import (
+    FakeEmbedder,
+    FakeVectorIndex,
+    SharedVectorIndex,
+    fake_embedding,
+)
 
-from second_brain_joplin.semantic.types import ChunkRecord, QueryHit
-
-_DIM = 16
-
-
-def _stable_hash(token: str) -> int:
-    return int.from_bytes(hashlib.md5(token.encode()).digest()[:4], "big")
-
-
-def _embed(text: str) -> list[float]:
-    """Bag-of-tokens hashed into a fixed-dim, L2-normalized vector."""
-    vec = [0.0] * _DIM
-    for token in text.lower().split():
-        vec[_stable_hash(token) % _DIM] += 1.0
-    norm = math.sqrt(sum(v * v for v in vec))
-    if norm == 0.0:
-        return vec
-    return [v / norm for v in vec]
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    return sum(x * y for x, y in zip(a, b, strict=True))
-
-
-class FakeEmbedder:
-    """Deterministic embedder over token hashes."""
-
-    def __init__(self, model_name: str = "fake-model") -> None:
-        self.model_name = model_name
-        self.dim = _DIM
-        self.doc_calls = 0
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        self.doc_calls += 1
-        return [_embed(text) for text in texts]
-
-    def embed_query(self, text: str) -> list[float]:
-        return _embed(text)
-
-
-class FakeVectorIndex:
-    """In-memory vector store keyed by chunk id."""
-
-    def __init__(self) -> None:
-        self.model_name = ""
-        self._records: dict[str, ChunkRecord] = {}
-        self._empty: dict[str, str] = {}
-
-    def note_versions(self) -> dict[str, str]:
-        return {r.note_id: r.updated_time for r in self._records.values()}
-
-    def empty_versions(self) -> dict[str, str]:
-        return dict(self._empty)
-
-    def mark_empty(self, note_id: str, version: str) -> None:
-        self._empty[note_id] = version
-
-    def stored_text(self) -> str:
-        """Everything a reader of the index could find in it: titles and chunk text."""
-        return "\n".join(f"{r.title}\n{r.text}" for r in self._records.values())
-
-    def upsert(self, records: list[ChunkRecord]) -> None:
-        for record in records:
-            self._records[record.chunk_id] = record
-            self._empty.pop(record.note_id, None)
-
-    def delete_notes(self, note_ids: list[str]) -> None:
-        drop = set(note_ids)
-        self._records = {cid: r for cid, r in self._records.items() if r.note_id not in drop}
-        self._empty = {nid: v for nid, v in self._empty.items() if nid not in drop}
-
-    def query(self, embedding: list[float], k: int) -> list[QueryHit]:
-        scored = [
-            QueryHit(
-                note_id=r.note_id,
-                title=r.title,
-                text=r.text,
-                chunk_index=r.chunk_index,
-                score=_cosine(embedding, r.embedding),
-            )
-            for r in self._records.values()
-        ]
-        scored.sort(key=lambda hit: hit.score, reverse=True)
-        return scored[:k]
-
-    def reset(self, model_name: str) -> None:
-        self.model_name = model_name
-        self._records = {}
-        self._empty = {}
-
-
-class SharedVectorIndex(FakeVectorIndex):
-    """An index another process writes to: ``intruders`` appear just before each query.
-
-    The real index is a file any process on the machine can sync into with its own
-    settings, so a search can't assume it holds only what this process put there.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.intruders: list[ChunkRecord] = []
-
-    def query(self, embedding: list[float], k: int) -> list[QueryHit]:
-        self.upsert(self.intruders)
-        return super().query(embedding, k)
+__all__ = ["FakeEmbedder", "FakeJoplin", "FakeVectorIndex", "SharedVectorIndex", "fake_embedding"]
 
 
 class FakeJoplin:

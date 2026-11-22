@@ -16,6 +16,7 @@ from pydantic import Field
 
 from ..changes import ChangeRequest, change_note, sha256
 from ..context import app_context
+from ..failure import guarded
 from ..models import MAX_NOTE_CHARS, MAX_TITLE_CHARS, ChangedNote
 from .annotations import ASK_EVERY_TIME, REPLACES_NOTE
 from .edit import Checksum
@@ -30,6 +31,7 @@ class ReplacedNote(ChangedNote):
 
 def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
     @mcp.tool(annotations=REPLACES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    @guarded
     async def joplin_replace_note(
         ctx: Context,
         note_id: NoteId,
