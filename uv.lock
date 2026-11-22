@@ -4648,13 +4648,19 @@ wheels = [
 ]
 
 [[package]]
-name = "second-brain-joplin"
-source = { editable = "." }
+name = "second-brain-core"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
-    { name = "httpx" },
+    { name = "httpx2" },
+    { name = "py-key-value-aio" },
     { name = "pydantic" },
     { name = "python-dotenv" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a1/72/8a083a83a96d9914e83e55669391a0d4418a3df5a4fdf42d5bb1e68e4ad7/second_brain_core-0.1.0.tar.gz", hash = "sha256:82fd3881c2660ec8c2d0cc30741eb4711112c9da731f23343d011bfff2fb7dce", size = 441561, upload-time = "2026-11-22T01:07:57.462Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/66/d5/a5478a878af3934a6142fad0a0d78cbb51d8e5af12ca8f7a5c942a3d5c8e/second_brain_core-0.1.0-py3-none-any.whl", hash = "sha256:f2c0fcbf87889aaaeaeca07153ad64cbbb3f84609210e1c1e717bf4227e6e781", size = 55090, upload-time = "2026-11-22T01:07:56.09Z" },
 ]
 
 [package.optional-dependencies]
@@ -4667,6 +4673,28 @@ semantic-chroma = [
 ]
 semantic-st = [
     { name = "sentence-transformers" },
+]
+
+[[package]]
+name = "second-brain-joplin"
+source = { editable = "." }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "second-brain-core" },
+]
+
+[package.optional-dependencies]
+semantic = [
+    { name = "second-brain-core", extra = ["semantic"] },
+]
+semantic-chroma = [
+    { name = "second-brain-core", extra = ["semantic-chroma"] },
+]
+semantic-st = [
+    { name = "second-brain-core", extra = ["semantic-st"] },
 ]
 test = [
     { name = "mypy" },
@@ -4690,8 +4718,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "chromadb", marker = "extra == 'semantic-chroma'", specifier = ">=0.5" },
-    { name = "fastembed", marker = "extra == 'semantic'", specifier = ">=0.4" },
     { name = "fastmcp", specifier = ">=4.1,<5" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mypy", marker = "extra == 'test'", specifier = ">=1.11" },
@@ -4701,8 +4727,10 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=5.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "respx", marker = "extra == 'test'", specifier = ">=0.21" },
-    { name = "sentence-transformers", marker = "extra == 'semantic-st'", specifier = ">=3" },
-    { name = "sqlite-vec", marker = "extra == 'semantic'", specifier = ">=0.1" },
+    { name = "second-brain-core", specifier = ">=0.1,<0.2" },
+    { name = "second-brain-core", extras = ["semantic"], marker = "extra == 'semantic'", specifier = ">=0.1,<0.2" },
+    { name = "second-brain-core", extras = ["semantic-chroma"], marker = "extra == 'semantic-chroma'", specifier = ">=0.1,<0.2" },
+    { name = "second-brain-core", extras = ["semantic-st"], marker = "extra == 'semantic-st'", specifier = ">=0.1,<0.2" },
 ]
 provides-extras = ["semantic", "semantic-chroma", "semantic-st", "test"]
 

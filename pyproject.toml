@@ -106,4 +106,3 @@ python_version = "3.11"
 files = ["src", "tests", "scripts"]
 strict = true
 ignore_missing_imports = true
-

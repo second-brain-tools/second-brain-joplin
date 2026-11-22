@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] — Core
+
+The server now runs on second-brain-core, the library it shares with the other
+Second Brain servers: sign-in, the audit log, HTTP serving, the settings files and
+the search engine are written once for all of them. The tools, settings and the
+`reindex` command are unchanged. What you can notice: the audit log names the
+client, an unplanned failure gives a fixed sentence and never its own text, a named
+`--env-file` is the whole configuration, and the search index moves to the shared
+layout in place the first time 1.3.0 opens it.
+
 ### Added
 
 - **The audit log names the client** (`client=`, #92), on every tool call's line
@@ -658,7 +668,8 @@ Initial project skeleton — the MCP server starts and all tools are stubbed.
 - Documentation: install, notebook structure (PARA), project management,
   releasing runbook, security policy, and an inspiration/reference note.
 
-[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.0.0...v1.0.1
