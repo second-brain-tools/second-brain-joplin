@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.1] — The client's name
+
+### Fixed
+
+- **`client=` gives the name the client registered under at sign-in** (#111). In
+  1.3.0 the registration was never found, so every line gave the name from the MCP
+  handshake instead: FastMCP's sign-in handed each request the GitHub user's id
+  where the client's belonged. Fixed in second-brain-core 0.1.1, which this release
+  requires. The Claude apps that share your account's connector all sign in through
+  it, so they all show `client=Claude`; the docs no longer say the line tells them
+  apart.
+
 ## [1.3.0] — Core
 
 The server now runs on second-brain-core, the library it shares with the other
@@ -668,7 +680,8 @@ Initial project skeleton — the MCP server starts and all tools are stubbed.
 - Documentation: install, notebook structure (PARA), project management,
   releasing runbook, security policy, and an inspiration/reference note.
 
-[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.0.1...v1.1.0
