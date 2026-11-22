@@ -60,10 +60,16 @@ the env var:
 | `SBJ_SEMANTIC_AUTO_SYNC` | `true` | re-sync before each search |
 
 Changing the embedding model (or its dimensionality) is detected automatically:
-the next sync rebuilds the index from scratch. All settings are listed in
+the next sync rebuilds the index from scratch. (Before 1.3.0 only a new model name
+was noticed.) All settings are listed in
 [configuration.md](configuration.md#semantic-search).
 
 ## How it works
+
+The engine (chunking, the index, sync and search) is
+[second-brain-core](https://github.com/second-brain-tools/second-brain-core)'s,
+shared with the other Second Brain servers. This server tells it which notes
+exist, which are visible, and what one note says.
 
 - **Chunking.** Each note is split into overlapping ~1000-character chunks,
   prefixed with the note title, and embedded per chunk. Search results are
@@ -73,7 +79,16 @@ the next sync rebuilds the index from scratch. All settings are listed in
   re-embeds only the ones that changed, and drops notes deleted in Joplin. A
   note with no text has nothing to embed; the index records its version, so it
   is read again only after it changes.
-- **Persistence.** The index lives at `SBJ_INDEX_DIR` and survives restarts.
+- **Persistence.** The index lives at `SBJ_INDEX_DIR` and survives restarts. The
+  file records its layout's version, the model and the vectors' width, and which
+  server owns it: **one index directory per server**. A second server pointed at
+  the same directory is refused, since each server's sync drops whatever it
+  doesn't list itself. An index made by 1.2.0 or earlier is moved to the current
+  layout in place the first time 1.3.0 opens it, keeping every vector (a Chroma
+  index is rebuilt instead).
+- **A word index too.** The default store (sqlite-vec) also keeps an SQLite FTS5
+  index of the same chunks. No tool of this server uses it (`joplin_search` asks
+  Joplin's own search); it is there because the engine is shared.
 - **Notebook filter.** With `SBJ_NOTEBOOKS` or `SBJ_EXCLUDE_NOTEBOOKS` set
   ([remote-access.md](remote-access.md#choosing-which-notebooks-are-exposed)),
   only visible notes are indexed, and a note that becomes hidden is dropped at

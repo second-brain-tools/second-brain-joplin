@@ -2,6 +2,21 @@
 
 Thanks for your interest in second-brain-joplin.
 
+## Where the code lives
+
+Sign-in, the audit log, HTTP serving, the settings files and the search engine are
+shared with the other Second Brain servers in
+[second-brain-core](https://github.com/second-brain-tools/second-brain-core). **Fix
+shared code there**, release it, then move this package's pin; this repository
+holds what is Joplin's (the Joplin client, the notebook filter, the tools). To try
+an unreleased core change here, point uv at your checkout for the moment, and
+don't commit it:
+
+```toml
+[tool.uv.sources]
+second-brain-core = { path = "../second-brain-core", editable = true }
+```
+
 ## Development setup
 
 We use [uv](https://docs.astral.sh/uv/) as the primary toolchain:
@@ -39,13 +54,14 @@ uv run pytest --cov-fail-under=90
 ### Semantic search & optional extras
 
 The semantic-search stack (embedding model + vector store) lives behind optional
-extras (`[semantic]`, `[semantic-chroma]`, `[semantic-st]`), so a plain `uv sync`
-and the test suite need **none** of them — the tests drive the orchestration in
-`src/second_brain_joplin/semantic/` through in-memory fakes (`tests/fakes.py`).
-The concrete backends in `semantic/backends.py` are the only code that imports
-the heavy libs (lazily), so they're omitted from coverage and validated
-separately. To exercise semantic search for real, install a backend combo and
-run `joplin_reindex`:
+extras (`[semantic]`, `[semantic-chroma]`, `[semantic-st]`, each pulling in the
+same extra of second-brain-core), so a plain `uv sync` and the test suite need
+**none** of them. The engine, the stores and the embedders are
+[second-brain-core](https://github.com/second-brain-tools/second-brain-core)'s and
+tested there; this repository's tests drive the Joplin side
+(`src/second_brain_joplin/semantic/service.py`) through core's in-memory fakes,
+re-exported in `tests/fakes.py`. To exercise semantic search for real, install a
+backend combo and run `joplin_reindex`:
 
 ```bash
 uv sync --extra semantic                 # sqlite-vec + FastEmbed (light default)

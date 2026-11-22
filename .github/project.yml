@@ -58,5 +58,7 @@ milestones:
     description: "PyPI release, full docs, Joplin note templates"
   - title: "v1.2 — Edit"
     description: "Change notes safely; search results that say where the match is; reading by section"
-  - title: "v1.3 — Organise"
+  - title: "v1.3 — Core"
+    description: "Run on second-brain-core, shared with the other Second Brain servers; the client named in the log"
+  - title: "v1.4 — Organise"
     description: "Move, trash, tags, to-dos, notebooks and attachments, under the same rules"
