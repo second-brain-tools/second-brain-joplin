@@ -4649,7 +4649,7 @@ wheels = [
 
 [[package]]
 name = "second-brain-core"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
@@ -4658,9 +4658,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/72/8a083a83a96d9914e83e55669391a0d4418a3df5a4fdf42d5bb1e68e4ad7/second_brain_core-0.1.0.tar.gz", hash = "sha256:82fd3881c2660ec8c2d0cc30741eb4711112c9da731f23343d011bfff2fb7dce", size = 441561, upload-time = "2026-11-22T01:07:57.462Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/e8/8ae77beac8605152dacb2d0a9fe999e30541961da3fa4af17b0cfe16ee3f/second_brain_core-0.1.1.tar.gz", hash = "sha256:cb00309d1357be5ed4ef40fe5d5e2f638b562794beaac5329ed17c1431945409", size = 443701, upload-time = "2026-11-22T12:56:31.848Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/66/d5/a5478a878af3934a6142fad0a0d78cbb51d8e5af12ca8f7a5c942a3d5c8e/second_brain_core-0.1.0-py3-none-any.whl", hash = "sha256:f2c0fcbf87889aaaeaeca07153ad64cbbb3f84609210e1c1e717bf4227e6e781", size = 55090, upload-time = "2026-11-22T01:07:56.09Z" },
+    { url = "https://files.pythonhosted.org/packages/64/13/618e8065adb03aef3973211fec33070d710886dcacafed3b00e49941e75b/second_brain_core-0.1.1-py3-none-any.whl", hash = "sha256:d46ca3ba1e9727b1d01e4a79a8feaa0bb4f07044da343e43738177cc0b6288a4", size = 55633, upload-time = "2026-11-22T12:56:30.39Z" },
 ]
 
 [package.optional-dependencies]
@@ -4727,10 +4727,10 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=5.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "respx", marker = "extra == 'test'", specifier = ">=0.21" },
-    { name = "second-brain-core", specifier = ">=0.1,<0.2" },
-    { name = "second-brain-core", extras = ["semantic"], marker = "extra == 'semantic'", specifier = ">=0.1,<0.2" },
-    { name = "second-brain-core", extras = ["semantic-chroma"], marker = "extra == 'semantic-chroma'", specifier = ">=0.1,<0.2" },
-    { name = "second-brain-core", extras = ["semantic-st"], marker = "extra == 'semantic-st'", specifier = ">=0.1,<0.2" },
+    { name = "second-brain-core", specifier = ">=0.1.1,<0.2" },
+    { name = "second-brain-core", extras = ["semantic"], marker = "extra == 'semantic'", specifier = ">=0.1.1,<0.2" },
+    { name = "second-brain-core", extras = ["semantic-chroma"], marker = "extra == 'semantic-chroma'", specifier = ">=0.1.1,<0.2" },
+    { name = "second-brain-core", extras = ["semantic-st"], marker = "extra == 'semantic-st'", specifier = ">=0.1.1,<0.2" },
 ]
 provides-extras = ["semantic", "semantic-chroma", "semantic-st", "test"]
 

@@ -482,9 +482,13 @@ What the live write checks found on Joplin 3.7.24, and the server relies on:
   the name the client registered under when it signed in, else the name it gives
   in the MCP handshake (or in each request, on protocols without one), else the
   first word of its `User-Agent`, else `unknown`. It keeps letters, digits and
-  `._/-` only, at most 40 characters, so it can't break or forge a line. It tells
-  your clients apart in the log (a desktop app, a phone, a coding agent); the
+  `._/-` only, at most 40 characters, so it can't break or forge a line. The
   server decides nothing by it.
+
+  It names a sign-in, not an app. The Claude apps that use your account's
+  connector (Claude.ai and Claude Code among them) sign in through it once,
+  under the name `Claude`, so they all show `client=Claude`. A client that signs
+  in on its own, such as another MCP client, shows its own name.
 
   Never the arguments (a search query is note content, and so is a new note's
   text), never results, never tokens. Four loggers that would leak are held back
