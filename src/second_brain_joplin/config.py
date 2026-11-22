@@ -4,6 +4,13 @@ import os
 from pathlib import Path
 
 from pydantic import BaseModel, field_validator
+from second_brain_core.env import env_bool as _env_bool
+from second_brain_core.env import env_flag as _env_flag
+from second_brain_core.env import env_int
+from second_brain_core.env import env_list as _env_list
+from second_brain_core.env import env_seconds as _env_seconds
+from second_brain_core.env import env_switch as _env_switch
+from second_brain_core.env import set_but_blank as _set_but_blank
 
 DEFAULT_BASE_URL = "http://localhost:41184"
 DEFAULT_TIMEOUT = 10.0
@@ -38,37 +45,7 @@ def default_index_dir() -> str:
     return str(base / "second-brain-joplin" / "index")
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 ASK_EVERY_TIME_VAR = "SBJ_ASK_EVERY_TIME"
-_YES = frozenset({"1", "true", "yes", "on"})
-_NO = frozenset({"0", "false", "no", "off"})
-
-
-def _env_switch(name: str) -> bool | None:
-    """A protection that is on unless it is plainly switched off: True, False or None.
-
-    Unset, or set to nothing, is on. Only a plain no is off. Anything else (a
-    typo) is None: the caller keeps the protection on, and ``serve`` refuses to
-    start, so a misspelt value can pass for neither answer. This is stricter than
-    ``_env_bool`` on purpose, where every value that isn't a yes means false.
-    """
-    word = os.environ.get(name, "").strip().lower()
-    if not word or word in _YES:
-        return True
-    if word in _NO:
-        return False
-    return None
-
-
-def _env_list(name: str) -> tuple[str, ...]:
-    """A comma-separated variable as its entries, trimmed, without empty ones."""
-    return tuple(entry.strip() for entry in os.environ.get(name, "").split(",") if entry.strip())
 
 
 def default_undo_dir() -> str:
@@ -79,72 +56,17 @@ def default_undo_dir() -> str:
 
 
 def _env_count(name: str, default: int) -> int | None:
-    """A whole number of at least 1 from the environment: the default when unset or empty.
+    """A whole number of at least 1: the default when unset or empty, None otherwise.
 
-    None when it isn't one; the caller then keeps the default and records the name,
-    and the commands refuse to start (cli.py). Never 0: the journal can't be turned
-    off (John, 2026-11-21), and a limit of 0 would only mean "edits on, but none".
+    Never 0: the journal can't be turned off (John, 2026-11-21), and a limit of 0
+    would only mean "edits on, but none".
     """
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return None
-    return value if value >= 1 else None
+    return env_int(name, default, minimum=1)
 
 
 def _env_up_to(name: str, ceiling: int) -> int | None:
     """A whole number from 0 to ``ceiling``; 0 when unset or empty; None for anything else."""
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return 0
-    try:
-        value = int(raw)
-    except ValueError:
-        return None
-    return value if 0 <= value <= ceiling else None
-
-
-def _env_flag(name: str) -> bool | None:
-    """A switch that is off unless it plainly says yes: True, False or None for a typo.
-
-    The opposite default of :func:`_env_switch`: for a power that stays off until the
-    operator asks for it. A value that is neither a yes nor a no is None: the power
-    stays off, and ``serve`` refuses to start until it is fixed.
-    """
-    word = os.environ.get(name, "").strip().lower()
-    if not word or word in _NO:
-        return False
-    if word in _YES:
-        return True
-    return None
-
-
-def _env_seconds(name: str, default: float) -> float | None:
-    """A number of seconds from the environment: the default when unset or empty.
-
-    None when the value is not a positive number. The caller then uses the
-    default and records the name, and the commands refuse to start (cli.py).
-    Raising here instead would break ``/healthz``, which reads the settings on
-    every request.
-    """
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return None
-    if not value > 0 or value == float("inf"):  # also catches nan
-        return None
-    return value
-
-
-def _set_but_blank(*names: str) -> tuple[str, ...]:
-    """Those of ``names`` that are in the environment and list nothing."""
-    return tuple(name for name in names if name in os.environ and not _env_list(name))
+    return env_int(name, 0, minimum=0, maximum=ceiling)
 
 
 class Settings(BaseModel):

@@ -10,6 +10,8 @@ large vault is best done beforehand with ``second-brain-joplin reindex``.
 import asyncio
 import logging
 
+from second_brain_core.errors import IndexOwnedElsewhereError
+
 from .context import AppContext
 from .errors import JoplinError, NotebookFilterError, SemanticUnavailableError
 
@@ -29,6 +31,9 @@ async def sync_forever(app: AppContext, interval_seconds: float) -> None:
     while True:
         try:
             stats = await app.semantic().sync()
+        except IndexOwnedElsewhereError as exc:  # names a variable and a server, no path
+            logger.warning("background index sync is off: %s", exc)
+            return
         except SemanticUnavailableError:
             logger.info("background index sync is off: semantic search isn't installed")
             return

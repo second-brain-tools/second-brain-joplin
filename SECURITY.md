@@ -24,7 +24,9 @@ public issue. We aim to acknowledge reports within a few days.
   whatever project your MCP client has open, nor from any directory above where
   it is installed, so a stray or planted `.env` can't point it at another Joplin
   or switch note creation on. (A clone of this repository run in development
-  reads the `.env` at the top of that clone, and nothing else.) The same goes
+  reads the `.env` at the top of that clone, and nothing else; since 1.3.0, not
+  even that when a file is named with `--env-file`, so the named file is the
+  whole configuration.) The same goes
   for the settings of FastMCP, the library underneath: the server keeps it from
   reading a `.env` in the working directory, and chooses the transport itself.
   Only `--transport http` or `SBJ_TRANSPORT=http` makes the server listen on the
@@ -48,9 +50,18 @@ public issue. We aim to acknowledge reports within a few days.
     page only for a sign-in you started yourself.
   - A strict Host check (421 for unknown hosts) against DNS rebinding.
   - A rate limit per GitHub account, and a cap on concurrent semantic searches.
-  - Logs record each tool call's name, caller id, outcome and duration, never
-    arguments, results or credentials; the HTTP client and access logs that
-    would print the Joplin token or an OAuth code are silenced.
+  - Logs record each tool call's name, caller id, client, outcome and duration,
+    never arguments, results or credentials; the HTTP client and access logs that
+    would print the Joplin token or an OAuth code are silenced. The client's name
+    is what the client says about itself: a hint in the log, never trusted.
+  - **An error tells the client only what was planned.** A failure the server
+    expects (Joplin not answering, a note not found) says so in its own words. A
+    failure nobody planned for gets one fixed sentence, and the log gets its
+    class and place, never its text. Before 1.3.0 such an exception's own text
+    went to the client, and FastMCP's log line carried its traceback: a pydantic
+    error quotes the value it rejected, which could be text from a note the
+    client was allowed to read. No path was found that carried the Joplin token,
+    and the maintainer's own logs held no such traceback.
   - Put a firewall in front where you can: Claude's requests come from
     Anthropic's published outbound ranges, and only the browser sign-in pages
     need to be reachable from anywhere.

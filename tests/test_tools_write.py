@@ -17,6 +17,7 @@ import respx
 from fakes import FakeJoplin
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
+from second_brain_core import env as core_env
 
 from second_brain_joplin import cli
 from second_brain_joplin.errors import NOTEBOOK_FILTER_MESSAGE
@@ -195,7 +196,7 @@ def test_serve_leaves_the_mark_off_when_an_env_file_says_so(
     joplin.notebook("Inbox")
     env_file = tmp_path / "serve.env"
     env_file.write_text("SBJ_WRITE_NOTEBOOKS=Inbox\nSBJ_ASK_EVERY_TIME=false\n")
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
     for name in ("SBJ_WRITE_NOTEBOOKS", "SBJ_ASK_EVERY_TIME"):
         monkeypatch.setenv(name, "")
         monkeypatch.delenv(name)  # so monkeypatch removes it again afterwards
@@ -218,7 +219,7 @@ def test_serve_registers_the_tool_from_an_env_file(
     joplin.notebook("Inbox")
     env_file = tmp_path / "serve.env"
     env_file.write_text("SBJ_WRITE_NOTEBOOKS=Inbox\n")
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
     monkeypatch.setenv("SBJ_WRITE_NOTEBOOKS", "")
     monkeypatch.delenv("SBJ_WRITE_NOTEBOOKS")  # so monkeypatch removes it again afterwards
     built: list[FastMCP] = []
@@ -237,7 +238,7 @@ def test_serve_registers_the_tool_from_an_env_file(
 def test_serve_without_the_setting_builds_a_read_only_server(
     joplin: FakeJoplin, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
     built: list[FastMCP] = []
     monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: built.append(self))
     cli.main(["serve"])
@@ -699,9 +700,9 @@ async def test_each_created_note_is_logged_by_id_with_no_content(
     monkeypatch.setenv("SBJ_WRITE_NOTEBOOKS", "Inbox")
     result = await _create(notebook="Inbox", title="Secret title", body="secret body text")
     for step in ("create sent", "created"):  # before the request goes out, and after
-        line = f"note {step} id={result['id']} notebook={vault.inbox} caller=anonymous"
-        assert line in caplog.text
-    assert "tool=joplin_create_note caller=anonymous outcome=ok" in caplog.text
+        line = f"note {step} id={result['id']} notebook={vault.inbox} caller=anonymous client="
+        assert re.search(re.escape(line) + r"\S+", caplog.text)
+    assert re.search(r"tool=joplin_create_note caller=anonymous client=\S+ outcome=ok", caplog.text)
     assert "Secret title" not in caplog.text
     assert "secret body text" not in caplog.text
 

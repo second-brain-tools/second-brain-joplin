@@ -23,7 +23,8 @@ For each setting the server takes the first of these that gives a value:
 3. **The file named by `--env-file`**: plain `KEY=value` lines. Use it for a
    server that a service manager starts, and keep it readable by you only
    (`chmod 600`), since it holds the Joplin token.
-4. **A `.env` file,** in a development checkout only (see below).
+4. **A `.env` file,** in a development checkout only, and only when no
+   `--env-file` is named: a named file is the whole configuration (see below).
 5. **The default.**
 
 Things to know:

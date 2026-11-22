@@ -14,7 +14,7 @@ from pydantic import Field
 
 from ..context import app_context
 from ..errors import JoplinError, JoplinNotFoundError, NotebookFilterError
-from ..failure import tool_error
+from ..failure import guarded, tool_error
 from ..journal import DAY
 from ..models import Change, epoch_ms_to_iso
 from ..scope import scope_of
@@ -26,6 +26,7 @@ MAX_CHANGES_LIMIT = 200
 
 def register(mcp: FastMCP) -> None:
     @mcp.tool(annotations=READ_ONLY)
+    @guarded
     async def joplin_changes(
         ctx: Context,
         days: Annotated[int, Field(ge=1, le=MAX_CHANGES_DAYS)] = 7,

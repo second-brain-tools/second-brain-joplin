@@ -368,13 +368,13 @@ refresh the list and check that the prompt is back.
   other notebook gets one answer, whether that notebook is hidden, doesn't exist
   or just isn't listed, followed by the notebooks that can receive notes.
 - **How much.** A title of up to 300 characters, a body of up to 100,000.
-- **A record.** Each attempt is logged with the note's id, its notebook's id and
-  the caller, before the request goes out and again with its outcome (`created`,
-  `create failed`, or `create unconfirmed`). Never the title or text:
+- **A record.** Each attempt is logged with the note's id, its notebook's id, the
+  caller and the client, before the request goes out and again with its outcome
+  (`created`, `create failed`, or `create unconfirmed`). Never the title or text:
 
   ```
-  2026-11-12 16:40:02,113 INFO second_brain_joplin.audit: note create sent id=4be0…a1 notebook=c7d1…6f caller=65598
-  2026-11-12 16:40:02,131 INFO second_brain_joplin.audit: note created id=4be0…a1 notebook=c7d1…6f caller=65598
+  2026-11-12 16:40:02,113 INFO second_brain_joplin.audit: note create sent id=4be0…a1 notebook=c7d1…6f caller=65598 client=Claude
+  2026-11-12 16:40:02,131 INFO second_brain_joplin.audit: note created id=4be0…a1 notebook=c7d1…6f caller=65598 client=Claude
   ```
 - **An honest answer when Joplin fails.** The tool chooses the note's id itself,
   so it can look afterwards. One of three things is reported: nothing was
@@ -435,7 +435,7 @@ server's own rules are what make a change safe:
 - **An honest answer when Joplin fails.** If Joplin's answer is lost, the note
   is read again: the change arrived, it didn't, or it can't be told yet.
 - **A record.** Each change is logged with the tool, the note's id, its
-  notebook's id and the caller, before it goes out and with its outcome. Never
+  notebook's id, the caller and the client, before it goes out and with its outcome. Never
   the title or text. `joplin_changes` lists what was changed, with no text.
 
 Joplin's own note history isn't relied on for undoing a change: a change made
@@ -469,20 +469,35 @@ What the live write checks found on Joplin 3.7.24, and the server relies on:
   the call is refused with "Rate limit exceeded".
 - **Semantic search** runs at most two queries at a time, so a burst can't tie
   up the embedding model.
-- **Logs** go to stderr, one line per tool call. A failed call names what
-  failed by its class name, such as `outcome=error:JoplinNotFoundError` or
+- **Logs** go to stderr, one line per tool call: the tool, the caller's GitHub
+  id, the client, the outcome and the time taken. A failed call names what failed
+  by its class name, such as `outcome=error:JoplinNotFoundError` or
   `outcome=error:JoplinUnavailableError` (Joplin not answering):
 
   ```
-  2026-11-11 16:40:02,113 INFO second_brain_joplin.audit: tool=joplin_search caller=65598 outcome=ok ms=41
+  2026-11-11 16:40:02,113 INFO second_brain_joplin.audit: tool=joplin_search caller=65598 client=Claude outcome=ok ms=41
   ```
 
+  **`client=` is what the client says about itself, and proves nothing.** It is
+  the name the client registered under when it signed in, else the name it gives
+  in the MCP handshake (or in each request, on protocols without one), else the
+  first word of its `User-Agent`, else `unknown`. It keeps letters, digits and
+  `._/-` only, at most 40 characters, so it can't break or forge a line. It tells
+  your clients apart in the log (a desktop app, a phone, a coding agent); the
+  server decides nothing by it.
+
   Never the arguments (a search query is note content, and so is a new note's
-  text), never results, never tokens. Three loggers that would leak are held back
+  text), never results, never tokens. Four loggers that would leak are held back
   in HTTP mode: httpx's request log (the Joplin token travels in the URL's query
   string, the only way Joplin's API accepts it), uvicorn's access log (the
-  sign-in callback URL carries the OAuth code), and FastMCP's debug log (it
-  prints each call's arguments, so it stays at INFO even if you ask for DEBUG).
+  sign-in callback URL carries the OAuth code), FastMCP's debug log (it prints
+  each call's arguments, so it stays at INFO even if you ask for DEBUG), and
+  FastMCP's "Error calling tool" line, which loses its traceback (that carries the
+  exception's text).
+- **A failure nobody planned for** gets one fixed sentence ("second-brain-joplin
+  couldn't complete this request. The server's log says where."), and the log
+  gets the exception's class and the file and line where it surfaced, never its
+  text: `unexpected KeyError in joplin_read at tools/read.py:312 in joplin_read`.
 
 ## Indexing
 

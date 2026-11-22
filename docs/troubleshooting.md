@@ -64,6 +64,13 @@ service enabled?"** Nothing is listening at Joplin's address.
   Service**.
 - If you changed the port in Joplin, set `JOPLIN_BASE_URL` to match.
 
+**"second-brain-joplin couldn't complete this request. The server's log says
+where."** Something failed that the server doesn't plan for, a bug. The client is
+told nothing more, because an exception's text can quote a note. The server's
+log has a line `unexpected <class> in <tool> at <file>:<line> in <function>`
+([where the logs are](#where-the-logs-are)): please open an issue with that
+line, which holds no note content.
+
 <a id="joplin-didnt-answer"></a>
 **"Joplin didn't answer at … within 10 seconds".** Joplin is there and didn't
 answer in time. Right after you enable the Web Clipper service, or while Joplin
@@ -162,6 +169,18 @@ search doesn't sync first. Over stdio the index then changes only when you call
 `joplin_reindex` or run `reindex`. In HTTP mode it is also synced in the
 background every `SBJ_SYNC_INTERVAL_MINUTES` (15 by default), so a new note can
 take that long to appear.
+
+**"The search index in SBJ_INDEX_DIR belongs to …. Give each server an index
+directory of its own."** Another Second Brain server already keeps
+its index in that directory. Each server's sync drops whatever it doesn't list
+itself, so two servers sharing one would delete each other's entries: give this
+one its own `SBJ_INDEX_DIR`.
+
+**The first search after updating to 1.3.0.** The index file is moved to the
+shared library's layout in place the first time it is opened: no note is
+embedded again, and it takes a moment at most. A Chroma index
+(`SBJ_VECTOR_STORE=chroma`) is rebuilt instead, as after a change of model: run
+`reindex` once in a terminal.
 
 **Starting over.** The index can always be rebuilt from Joplin. Stop the
 server, delete the index directory
@@ -341,12 +360,13 @@ The server writes its log to standard error.
 - **Claude Desktop:** one log per server, `mcp-server-second-brain-joplin.log`,
   in `~/Library/Logs/Claude` on macOS and `%APPDATA%\Claude\logs` on Windows.
 - **HTTP mode:** wherever your service manager sends standard error. One line
-  per tool call says which tool, who called, the outcome and how long it took.
+  per tool call says which tool, who called, from which client, the outcome and
+  how long it took.
   A failed call names what failed, by the error's class name only:
 
   ```
-  2026-11-12 16:40:02,113 INFO second_brain_joplin.audit: tool=joplin_search caller=65598 outcome=ok ms=41
-  2026-11-12 16:41:10,502 INFO second_brain_joplin.audit: tool=joplin_read caller=65598 outcome=error:JoplinUnavailableError ms=0
+  2026-11-12 16:40:02,113 INFO second_brain_joplin.audit: tool=joplin_search caller=65598 client=Claude outcome=ok ms=41
+  2026-11-12 16:41:10,502 INFO second_brain_joplin.audit: tool=joplin_read caller=65598 client=Claude outcome=error:JoplinUnavailableError ms=0
   ```
 
 The logs never hold a note's title or text, a search query or a token

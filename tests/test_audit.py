@@ -1,9 +1,12 @@
-"""Tests for what HTTP mode logs (and never logs), the rate limit, and search slots."""
+"""What HTTP mode logs for this server, and never logs.
 
-import asyncio
+The audit line, the rate limit and the logging set-up are second-brain-core's and
+tested there. These run them on this server: the Joplin token, note content, and
+this server's own failures named in the log.
+"""
+
 import logging
-import threading
-import time
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -11,29 +14,26 @@ from typing import Any
 import httpx
 import pytest
 import respx
-from fakes import FakeEmbedder, FakeVectorIndex
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import StaticTokenVerifier
 from fastmcp.utilities.tests import ASGIServer, asgi_server
-from mcp.shared.exceptions import MCPError
+from second_brain_core.audit import NO_DEBUG_LOGGERS, QUIET_LOGGERS, outcome_name
+from second_brain_core.audit import configure_logging as core_configure_logging
+from second_brain_core.remote import HttpOptions, http_app_kwargs
 
-from second_brain_joplin.audit import (
-    NO_DEBUG_LOGGERS,
-    QUIET_LOGGERS,
-    configure_logging,
-    outcome_name,
-    rate_limit,
-)
-from second_brain_joplin.config import Settings
 from second_brain_joplin.errors import (
     JoplinUnavailableError,
     NotebookFilterError,
     SemanticUnavailableError,
 )
-from second_brain_joplin.remote import HttpOptions, http_app_kwargs
-from second_brain_joplin.semantic.service import SEARCH_CONCURRENCY, SemanticSearchService
+from second_brain_joplin.identity import NAMED_CAUSES, SERVER
 from second_brain_joplin.server import create_server
+
+
+def configure_logging() -> None:
+    core_configure_logging(SERVER)
+
 
 BASE_URL = "http://localhost:41184"
 JOPLIN_TOKEN = "joplin-token-SECRET-1"
@@ -62,7 +62,8 @@ async def serving(rate: int = 0) -> AsyncIterator[ASGIServer]:
         allowed_ids=frozenset({"65598", "2"}),
         rate_limit_per_minute=rate,
     )
-    kwargs = http_app_kwargs(HttpOptions(public_url="https://joplin.example.com"))
+    options = HttpOptions(host="127.0.0.1", port=8775, public_url="https://joplin.example.com")
+    kwargs = http_app_kwargs(options)
     path = kwargs.pop("path")
     async with asgi_server(server, path=path, **kwargs) as running:
         yield running
@@ -79,27 +80,6 @@ def _mock_search() -> None:
 async def _search_as_john(running: ASGIServer) -> None:
     async with running.client(auth="john") as client:
         await client.call_tool("joplin_search", {"query": QUERY})
-
-
-def test_configure_logging_quietens_url_loggers_and_is_idempotent() -> None:
-    configure_logging()
-    configure_logging()
-    for name in QUIET_LOGGERS:
-        assert logging.getLogger(name).level == logging.WARNING
-    ours = [h for h in logging.getLogger("second_brain_joplin").handlers if getattr(h, "_sbj", 0)]
-    assert len(ours) == 1
-
-
-def test_configure_logging_holds_argument_printing_loggers_at_info() -> None:
-    for name in NO_DEBUG_LOGGERS:
-        logging.getLogger(name).setLevel(logging.DEBUG)
-    configure_logging()
-    for name in NO_DEBUG_LOGGERS:
-        assert logging.getLogger(name).level == logging.INFO
-    # A quieter level is the operator's choice and is left alone.
-    logging.getLogger("fastmcp").setLevel(logging.ERROR)
-    configure_logging()
-    assert logging.getLogger("fastmcp").level == logging.ERROR
 
 
 @respx.mock
@@ -154,7 +134,7 @@ async def test_logs_hold_the_call_but_no_content_or_credentials(
     async with serving() as running:
         await _search_as_john(running)
     text = caplog.text
-    assert "tool=joplin_search caller=65598 outcome=ok" in text
+    assert re.search(r"tool=joplin_search caller=65598 client=\S+ outcome=ok", text)
     for secret in (JOPLIN_TOKEN, NOTE_TEXT, QUERY, "Bearer john"):
         assert secret not in text, secret
 
@@ -170,7 +150,7 @@ async def test_failed_calls_are_logged_by_type_not_message(
         result = await client.call_tool("joplin_read", {"note_id": QUERY}, raise_on_error=False)
     assert result.is_error
     audit = [r.getMessage() for r in caplog.records if r.name == "second_brain_joplin.audit"]
-    assert audit and audit[0].startswith("tool=joplin_read caller=65598 outcome=error")
+    assert audit and re.match(r"tool=joplin_read caller=65598 client=\S+ outcome=error", audit[0])
     assert QUERY not in " ".join(audit)
 
 
@@ -207,61 +187,11 @@ def test_outcome_names_only_this_packages_causes() -> None:
         error.__cause__ = cause
         return error
 
-    assert outcome_name(raised_from(JoplinUnavailableError("x"))) == "JoplinUnavailableError"
-    assert outcome_name(raised_from(NotebookFilterError("detail"))) == "NotebookFilterError"
-    assert outcome_name(raised_from(SemanticUnavailableError("x"))) == "SemanticUnavailableError"
-    assert outcome_name(raised_from(None)) == "ToolError"
-    assert outcome_name(raised_from(KeyError("x"))) == "ToolError"  # not ours: not named
-    assert outcome_name(ValueError("x")) == "ValueError"
-
-
-@respx.mock
-async def test_rate_limit_is_per_caller() -> None:
-    _mock_search()
-    async with serving(rate=6) as running:  # bursts of 3 tool calls per caller
-        outcomes = []
-        async with running.client(auth="john") as client:
-            assert await client.list_tools()  # listing is never counted
-            for _ in range(5):
-                try:
-                    await client.call_tool("joplin_search", {"query": "q"})
-                    outcomes.append("ok")
-                except MCPError as exc:
-                    assert "Rate limit exceeded for client: 65598" in str(exc)
-                    outcomes.append("limited")
-        async with running.client(auth="other") as client:  # a separate bucket
-            other = await client.call_tool("joplin_search", {"query": "q"})
-    assert outcomes == ["ok", "ok", "ok", "limited", "limited"]
-    assert other.is_error is False
-
-
-def test_rate_limit_needs_a_positive_rate() -> None:
-    with pytest.raises(ValueError):
-        rate_limit(0)
-
-
-async def test_semantic_searches_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:
-    active = 0
-    peak = 0
-    lock = threading.Lock()
-
-    class SlowEmbedder(FakeEmbedder):
-        def embed_query(self, text: str) -> list[float]:
-            nonlocal active, peak
-            with lock:
-                active += 1
-                peak = max(peak, active)
-            time.sleep(0.05)
-            with lock:
-                active -= 1
-            return super().embed_query(text)
-
-    settings = Settings(semantic_auto_sync=False)
-    service = SemanticSearchService(
-        client=None,  # type: ignore[arg-type]  # auto-sync is off: Joplin is never called
-        embedder=SlowEmbedder(),
-        index=FakeVectorIndex(),
-        settings=settings,
-    )
-    await asyncio.gather(*(service.search("q") for _ in range(6)))
-    assert peak == SEARCH_CONCURRENCY
+    named = NAMED_CAUSES
+    assert outcome_name(raised_from(JoplinUnavailableError("x")), named) == "JoplinUnavailableError"
+    assert outcome_name(raised_from(NotebookFilterError("detail")), named) == "NotebookFilterError"
+    unavailable = raised_from(SemanticUnavailableError("x"))
+    assert outcome_name(unavailable, named) == "SemanticUnavailableError"
+    assert outcome_name(raised_from(None), named) == "ToolError"
+    assert outcome_name(raised_from(KeyError("x")), named) == "ToolError"  # not ours: not named
+    assert outcome_name(ValueError("x"), named) == "ValueError"

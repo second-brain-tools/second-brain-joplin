@@ -1,14 +1,10 @@
 """second-brain-joplin: MCP server for Joplin knowledge bases."""
 
-import os
+# First, and the only import here: it stops FastMCP, the library underneath, from
+# reading its own settings (the transport among them) from a `.env` in the working
+# directory, which for an MCP server is whatever project the client has open. It
+# must run before anything imports fastmcp, so nothing else is imported in this
+# file: import sorting would move such an import above this line.
+import second_brain_core  # noqa: F401
 
-__version__ = "1.2.0"
-
-# FastMCP, the library underneath, has settings of its own (FASTMCP_*), and when it
-# is first imported it reads them from a `.env` in the working directory. For an
-# MCP server the working directory is whatever project the client has open, and
-# those settings include the transport: a project's `.env` must not be able to
-# turn a local stdio server into an HTTP one. Naming an env file that isn't a
-# file stops the read. It has to happen here, before anything imports fastmcp,
-# and it leaves alone a FASTMCP_ENV_FILE the operator set on purpose.
-os.environ.setdefault("FASTMCP_ENV_FILE", os.devnull)
+__version__ = "1.3.0"

@@ -630,6 +630,8 @@ ones that need you.
 | `The note has changed since it was read (its text's checksum is different), so nothing was changed. …` | Read it again and make the change on what it says now |
 | `Edit N: its old text isn't in the note …` / `Edit N: its old text appears K times …` | That edit's `old` must be copied exactly and found once |
 | `This note is in Joplin's trash …`, `… is a conflict copy …`, `… hasn't been decrypted …`, `… isn't Markdown …` | Notes no tool changes |
+| `second-brain-joplin couldn't complete this request. The server's log says where.` | A failure nobody planned for (a bug). The log names its class and place, never its text ([troubleshooting.md](troubleshooting.md#a-tool-answers-with-an-error)) |
+| `The search index in SBJ_INDEX_DIR belongs to …. Give each server an index directory of its own.` | Another Second Brain server keeps its index in that directory |
 | `The change would remove N reference(s) to the note's attachments …` | Keep every `:/<id>` of an attachment |
 | `The change would leave the note as it is, so nothing was written.` | The edit's `old` and `new` are the same |
 | `A note's text can't be replaced with nothing.` | `joplin_replace_note` with a text of only spaces or line breaks (an empty one is refused before that) |

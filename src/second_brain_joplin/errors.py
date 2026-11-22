@@ -5,6 +5,19 @@ straight into ``fastmcp.exceptions.ToolError`` so the AI client sees an
 actionable explanation.
 """
 
+from second_brain_core.errors import FilterError, SemanticUnavailableError
+
+__all__ = [
+    "JoplinAPIError",
+    "JoplinAuthError",
+    "JoplinConnectionError",
+    "JoplinError",
+    "JoplinNotFoundError",
+    "JoplinUnavailableError",
+    "NotebookFilterError",
+    "SemanticUnavailableError",
+]
+
 
 class JoplinError(Exception):
     """Base class for all Joplin client failures."""
@@ -63,7 +76,7 @@ NOTEBOOK_FILTER_MESSAGE = (
 )
 
 
-class NotebookFilterError(Exception):
+class NotebookFilterError(FilterError):
     """A notebook setting names something Joplin's notebooks don't match.
 
     The tools it governs refuse while this holds: a filter that can't be resolved
@@ -77,17 +90,10 @@ class NotebookFilterError(Exception):
     Joplin API failure.
     """
 
-    def __init__(self, detail: str) -> None:
-        super().__init__(NOTEBOOK_FILTER_MESSAGE)
-        self.detail = detail
+    MESSAGE = NOTEBOOK_FILTER_MESSAGE
+    WHAT = "notebook filter"
 
 
-class SemanticUnavailableError(Exception):
-    """Semantic search cannot run — the optional dependencies are missing.
-
-    Raised when a semantic backend (embedder or vector store) cannot be built,
-    typically because the ``second-brain-joplin[semantic]`` extra is not
-    installed. The message tells the user how to enable it. Deliberately not a
-    :class:`JoplinError`: it is a local configuration problem, not a Joplin API
-    failure.
-    """
+# SemanticUnavailableError comes from second-brain-core, which builds the search
+# engine: search by meaning can't run (the extra is missing, or the index can't be
+# used). Deliberately not a JoplinError: it is a local problem, not a Joplin failure.

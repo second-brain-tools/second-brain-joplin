@@ -8,6 +8,7 @@ import httpx
 import pytest
 import respx
 from fakes import FakeEmbedder, FakeJoplin, FakeVectorIndex, SharedVectorIndex
+from second_brain_core.semantic.types import ChunkRecord, Embedder, VectorIndex
 
 from second_brain_joplin.config import Settings
 from second_brain_joplin.errors import (
@@ -18,7 +19,6 @@ from second_brain_joplin.errors import (
 )
 from second_brain_joplin.joplin_client import JoplinClient
 from second_brain_joplin.semantic.service import SemanticSearchService
-from second_brain_joplin.semantic.types import ChunkRecord, Embedder, VectorIndex
 
 BASE_URL = "http://localhost:41184"
 
@@ -99,7 +99,7 @@ async def test_full_sync_embeds_all_notes() -> None:
     stats = await _service(index=index).sync(full=True)
 
     assert (stats.added, stats.updated, stats.deleted, stats.total) == (2, 0, 0, 2)
-    assert set(index.note_versions()) == {"a", "b"}
+    assert set(index.item_versions()) == {"a", "b"}
     assert index.model_name == "fake-model"
 
 
@@ -138,8 +138,8 @@ async def test_sync_handles_add_change_delete() -> None:
 
     stats = await service.sync()
     assert (stats.added, stats.updated, stats.deleted, stats.total) == (1, 1, 1, 2)
-    assert set(index.note_versions()) == {"b", "c"}
-    assert index.note_versions()["b"] == "200"
+    assert set(index.item_versions()) == {"b", "c"}
+    assert index.item_versions()["b"] == "200"
 
 
 @respx.mock
@@ -223,7 +223,7 @@ async def test_a_note_with_no_text_is_marked_not_counted() -> None:
     stats = await _service(index=index).sync()
 
     assert (stats.added, stats.updated, stats.deleted, stats.total) == (0, 0, 0, 1)
-    assert index.note_versions() == {}  # no chunks
+    assert index.item_versions() == {}  # no chunks
     assert index.empty_versions() == {note: "100"}  # but its version is known
     assert joplin.count(f"/notes/{note}") == 1
     assert await _service(index=index, auto_sync=False).search("title") == []
@@ -256,7 +256,7 @@ async def test_a_note_that_gains_text_is_embedded_and_counted_as_added() -> None
     stats = await service.sync()
 
     assert (stats.added, stats.updated) == (1, 0)
-    assert index.note_versions() == {note: "200"}
+    assert index.item_versions() == {note: "200"}
     assert index.empty_versions() == {}
 
 
@@ -274,7 +274,7 @@ async def test_a_note_that_is_emptied_drops_its_chunks_and_counts_as_updated() -
     stats = await service.sync()
 
     assert (stats.added, stats.updated, stats.deleted) == (0, 1, 0)
-    assert index.note_versions() == {}
+    assert index.item_versions() == {}
     assert index.empty_versions() == {note: "200"}
     assert "apple" not in index.stored_text()
 
@@ -390,7 +390,7 @@ async def test_concurrent_sync_is_serialized() -> None:
     stats_a, stats_b = await asyncio.gather(service.sync(), service.sync())
 
     # Both complete; the lock prevents interleaving, so the index is consistent.
-    assert set(index.note_versions()) == {"a"}
+    assert set(index.item_versions()) == {"a"}
     assert stats_a.total == 1 and stats_b.total == 1
 
 
@@ -416,7 +416,7 @@ async def test_filter_keeps_hidden_notes_out_of_the_index() -> None:
     stats = await _service(index=index, exclude_notebooks=("Journal",)).sync()
 
     assert (stats.added, stats.total) == (1, 1)
-    assert set(index.note_versions()) == {plan}
+    assert set(index.item_versions()) == {plan}
     assert SECRET not in index.stored_text()
     # The hidden note's body was never even fetched.
     assert joplin.count(f"/notes/{_diary}") == 0
@@ -428,13 +428,13 @@ async def test_note_moved_out_of_sight_is_dropped_at_the_next_sync() -> None:
     index = FakeVectorIndex()
     service = _service(index=index, notebooks=("Work",))
     await service.sync()
-    assert set(index.note_versions()) == {plan}
+    assert set(index.item_versions()) == {plan}
 
     joplin.move(plan, journal)  # updated_time is unchanged: only the notebook moved
     stats = await service.sync()
 
     assert (stats.deleted, stats.total) == (1, 0)
-    assert index.note_versions() == {}
+    assert index.item_versions() == {}
     assert "apple plan" not in index.stored_text()
 
 
@@ -449,7 +449,7 @@ async def test_note_moved_into_sight_is_added_at_the_next_sync() -> None:
     stats = await service.sync()
 
     assert (stats.added, stats.updated, stats.total) == (1, 0, 2)
-    assert set(index.note_versions()) == {plan, diary}
+    assert set(index.item_versions()) == {plan, diary}
 
 
 @respx.mock
@@ -463,7 +463,7 @@ async def test_a_note_that_moves_between_the_listing_and_the_read_is_not_embedde
     stats = await _service(index=index, embedder=embedder, notebooks=("Work",)).sync()
 
     assert stats.added == 0
-    assert index.note_versions() == {}
+    assert index.item_versions() == {}
     assert embedder.doc_calls == 0
     assert joplin.count(f"/notes/{plan}") == 1
 
@@ -498,7 +498,7 @@ async def test_a_filter_that_does_not_resolve_leaves_the_index_untouched() -> No
     with pytest.raises(NotebookFilterError):
         await broken.prune()
 
-    assert set(index.note_versions()) == {plan}
+    assert set(index.item_versions()) == {plan}
 
 
 @respx.mock
@@ -512,7 +512,7 @@ async def test_a_full_rebuild_with_joplin_down_leaves_the_index_untouched() -> N
     with pytest.raises(JoplinConnectionError):
         await service.sync(full=True)
 
-    assert set(index.note_versions()) == {plan, diary}
+    assert set(index.item_versions()) == {plan, diary}
 
 
 @respx.mock
@@ -531,7 +531,7 @@ async def test_search_without_auto_sync_still_drops_what_the_filter_now_hides() 
     joplin.note("Fresh", "apple fresh", work)  # and something new, not yet indexed
 
     assert await service.search("apple plan") == []
-    assert index.note_versions() == {}  # gone from the index, not just from the answer
+    assert index.item_versions() == {}  # gone from the index, not just from the answer
     assert embedder.doc_calls == embedded  # the prune embedded nothing
 
 
@@ -557,7 +557,7 @@ async def test_prune_reports_what_it_dropped() -> None:
     assert await service.prune() == 0
     joplin.move(plan, journal)
     assert await service.prune() == 1
-    assert index.note_versions() == {}
+    assert index.item_versions() == {}
 
 
 # -- an index other processes write to ---------------------------------------------
@@ -567,9 +567,9 @@ def _intruder(note_id: str, title: str, text: str) -> ChunkRecord:
     """A chunk as an unfiltered process would have written it for a hidden note."""
     return ChunkRecord(
         chunk_id=f"{note_id}::0",
-        note_id=note_id,
+        item_id=note_id,
         title=title,
-        updated_time="100",
+        version="100",
         chunk_index=0,
         text=text,
         embedding=FakeEmbedder().embed_documents([text])[0],
@@ -592,7 +592,7 @@ async def test_a_hidden_note_another_process_indexed_is_never_returned(auto_sync
 
     assert [r.id for r in results] == [plan]
     assert all(SECRET not in r.excerpt and r.title != "Diary" for r in results)
-    assert diary in index.note_versions()  # it really was in the index when queried
+    assert diary in index.item_versions()  # it really was in the index when queried
 
 
 @respx.mock
@@ -654,7 +654,7 @@ async def test_a_sync_inside_a_hold_fails_at_once_and_leaves_the_index_alone() -
         await service.sync()  # the background sync's next run: held
 
     assert len(joplin.requests) == asked
-    assert index.note_versions() == {note: "100"}
+    assert index.item_versions() == {note: "100"}
 
 
 @respx.mock
@@ -670,13 +670,13 @@ async def test_a_note_not_yet_decrypted_is_neither_marked_nor_counted_and_is_rea
     stats = await service.sync()
     assert (stats.added, stats.updated, stats.total) == (0, 0, 1)
     assert index.empty_versions() == {}
-    assert index.note_versions() == {}
+    assert index.item_versions() == {}
 
     joplin.notes[note].update(title="Plan", body="apple plan", encryption_applied=0)
     stats = await service.sync()  # same updated_time: only no mark makes it look again
 
     assert stats.added == 1
-    assert index.note_versions() == {note: "100"}
+    assert index.item_versions() == {note: "100"}
     assert joplin.count(f"/notes/{note}") == 2
 
 
@@ -693,5 +693,5 @@ async def test_an_indexed_note_that_comes_back_encrypted_drops_its_chunks_uncoun
     stats = await service.sync()
 
     assert (stats.added, stats.updated, stats.deleted) == (0, 0, 0)
-    assert index.note_versions() == {} and index.empty_versions() == {}
+    assert index.item_versions() == {} and index.empty_versions() == {}
     assert "apple" not in index.stored_text()

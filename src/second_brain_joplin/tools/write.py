@@ -27,12 +27,12 @@ from typing import Annotated
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field
+from second_brain_core.audit import caller_id, this_calls_client
 
-from ..audit import caller_id
 from ..config import CREATE_NOTES_CEILING
 from ..context import AppContext, app_context
 from ..errors import JoplinAuthError, JoplinConnectionError, JoplinError, NotebookFilterError
-from ..failure import tool_error
+from ..failure import guarded, tool_error
 from ..joplin_client import JoplinClient
 from ..models import (
     MAX_NOTE_CHARS,
@@ -109,6 +109,7 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
     """
 
     @mcp.tool(annotations=CREATES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    @guarded
     async def joplin_create_note(
         ctx: Context,
         title: Annotated[
@@ -200,10 +201,17 @@ async def create_one(
     # be looked up afterwards. Ids only in the log: a title is note content.
     note_id = uuid.uuid4().hex
     who = caller_id()
+    client = this_calls_client()
 
     def record(what: str, level: int = logging.INFO) -> None:
         audit_logger.log(
-            level, "note %s id=%s notebook=%s caller=%s", what, note_id, notebook_id, who
+            level,
+            "note %s id=%s notebook=%s caller=%s client=%s",
+            what,
+            note_id,
+            notebook_id,
+            who,
+            client,
         )
 
     def failed(exc: JoplinError) -> ToolError:
@@ -270,6 +278,7 @@ def register_many(mcp: FastMCP, *, max_notes: int, ask_every_time: bool = True) 
     """Register joplin_create_notes (#69), for up to ``max_notes`` notes a call."""
 
     @mcp.tool(annotations=CREATES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    @guarded
     async def joplin_create_notes(
         ctx: Context,
         notes: Annotated[

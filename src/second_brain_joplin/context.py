@@ -2,9 +2,9 @@
 
 Holds the shared Joplin client and settings, and lazily builds the semantic
 search service on first use. The optional ML/vector backends are imported only
-inside :meth:`AppContext.semantic` (via :mod:`.semantic.backends`), so importing
-this module — and therefore starting the server on a base install — never
-requires the extras.
+inside :meth:`AppContext.semantic` (second-brain-core's ``semantic.embedders`` and
+``semantic.stores``), so importing this module — and therefore starting the
+server on a base install — never requires the extras.
 """
 
 import asyncio
@@ -76,10 +76,18 @@ class AppContext:
         or misconfigured.
         """
         if self._semantic is None:
-            from .semantic import backends
+            from second_brain_core.semantic import embedders, stores
 
-            embedder = backends.build_embedder(self.settings)
-            index = backends.build_vector_index(self.settings, embedder.model_name)
+            from .identity import SERVER
+
+            # The index first: it is quick, and when it is refused (another server owns
+            # the directory) no model is loaded for nothing.
+            index = stores.build_vector_index(
+                SERVER, self.settings.vector_store, self.settings.semantic_index_dir
+            )
+            embedder = embedders.build_embedder(
+                SERVER, self.settings.embedding_backend, self.settings.embedding_model
+            )
             self._semantic = SemanticSearchService(self.client, embedder, index, self.settings)
         return self._semantic
 

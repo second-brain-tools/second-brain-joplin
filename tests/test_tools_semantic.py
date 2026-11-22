@@ -8,9 +8,9 @@ import respx
 from fakes import FakeEmbedder, FakeVectorIndex
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from second_brain_core.semantic import embedders, stores
 
 from second_brain_joplin.errors import SemanticUnavailableError
-from second_brain_joplin.semantic import backends
 from second_brain_joplin.server import mcp
 
 BASE_URL = "http://localhost:41184"
@@ -23,8 +23,8 @@ def _attr(obj: object, name: str) -> Any:
 
 def _install_fakes(monkeypatch: pytest.MonkeyPatch, index: FakeVectorIndex | None = None) -> None:
     shared_index = index or FakeVectorIndex()
-    monkeypatch.setattr(backends, "build_embedder", lambda settings: FakeEmbedder())
-    monkeypatch.setattr(backends, "build_vector_index", lambda settings, model_name: shared_index)
+    monkeypatch.setattr(embedders, "build_embedder", lambda *args: FakeEmbedder())
+    monkeypatch.setattr(stores, "build_vector_index", lambda *args: shared_index)
 
 
 def _mock_vault(notes: dict[str, tuple[str, str, int]]) -> None:
@@ -87,10 +87,10 @@ async def test_reindex_reports_stats(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_semantic_search_missing_extra_raises_tool_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def boom(settings: object) -> object:
+    def boom(*_args: object) -> object:
         raise SemanticUnavailableError("install second-brain-joplin[semantic]")
 
-    monkeypatch.setattr(backends, "build_embedder", boom)
+    monkeypatch.setattr(embedders, "build_embedder", boom)
 
     async with Client(mcp) as client:
         with pytest.raises(ToolError, match="semantic"):

@@ -5,16 +5,25 @@ import asyncio
 import logging
 import os
 import time
-import tomllib
-from collections.abc import Mapping
 from pathlib import Path
 
-from dotenv import dotenv_values
 from fastmcp.exceptions import ToolError
+from second_brain_core.audit import configure_logging
+from second_brain_core.auth import AuthSettings, build_auth
+from second_brain_core.env import load_configuration
+from second_brain_core.errors import ServeConfigError
+from second_brain_core.remote import (
+    TRANSPORTS,
+    choose_transport,
+    http_options,
+    refuse_http_flags,
+    run_http,
+    run_stdio,
+    validate,
+)
+from second_brain_core.semantic.types import SyncStats
 
 from . import __version__
-from .audit import configure_logging
-from .auth import AuthSettings, build_auth
 from .changes import references, refuse_kind, sha256
 from .config import (
     CONNECT_TIMEOUT_VAR,
@@ -25,9 +34,10 @@ from .config import (
 )
 from .context import AppContext
 from .errors import JoplinError, NotebookFilterError, SemanticUnavailableError
+from .identity import SERVER
 from .joplin_client import JoplinClient, JsonDict
 from .journal import Journal, JournalError
-from .remote import ServeConfigError, http_options, run_http, validate
+from .remote import sync_interval_minutes
 from .scope import (
     NotebookScope,
     WriteTargets,
@@ -36,14 +46,9 @@ from .scope import (
     scope_of,
     write_targets_of,
 )
-from .semantic.types import SyncStats
 from .server import create_server
 
 logger = logging.getLogger("second_brain_joplin.cli")
-
-TRANSPORTS = ("stdio", "http")
-# This project's name in pyproject.toml: what marks a directory as a checkout of it.
-PROJECT_NAME = "second-brain-joplin"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -358,99 +363,35 @@ def notebooks(_args: argparse.Namespace) -> None:
     print("\n".join(notebook_lines(folders, notes_index, scope, targets, editable)))
 
 
-def _apply_env(values: Mapping[str, str | None]) -> None:
-    """Put ``values`` into the environment, keeping any variable already set to something.
-
-    A variable that is set to nothing doesn't count as set here. Otherwise an
-    empty ``SBJ_NOTEBOOKS`` exported by a shell or a service manager would
-    silently beat the filter written in the file.
-    """
-    for name, value in values.items():
-        if value is not None and not os.environ.get(name):
-            os.environ[name] = value
-
-
-def load_env_file(path: Path) -> None:
-    """Load ``KEY=value`` lines from ``path`` into the environment, keeping set ones.
-
-    For service managers like launchd that can't load an env file themselves. A file
-    that is missing or unreadable is an error, not a silent no-op.
-    """
-    if not path.is_file():
-        raise ServeConfigError(f"--env-file {path} does not exist or is not a file")
-    _apply_env(dotenv_values(path))
-
-
-def checkout_env_file(package_dir: Path | None = None) -> Path | None:
-    """The ``.env`` of the source checkout this code runs from, or None.
-
-    ``.env`` is a development convenience, so it is looked for in exactly one
-    place: beside this project's own ``pyproject.toml``, two levels above the
-    package (``<checkout>/src/second_brain_joplin``). An installed copy sits in
-    ``site-packages`` with no such file there, so it reads no ``.env`` at all:
-    not one in a directory above where it is installed (``~/.env`` for a tool
-    installed under the home directory, a project's ``.env`` for a copy in that
-    project's virtual environment), and never the working directory's, which is
-    whatever project the MCP client has open. A ``.env`` can point the server at
-    another Joplin or switch note creation on, so only a file the operator chose
-    may do that: an installed server takes its settings from its environment or
-    ``--env-file``.
-    """
-    here = Path(__file__).resolve().parent if package_dir is None else package_dir
-    root = here.parent.parent
-    try:
-        with (root / "pyproject.toml").open("rb") as handle:
-            project = tomllib.load(handle).get("project")
-    except (OSError, ValueError):  # no such file, or not TOML: not a checkout
-        return None
-    if not isinstance(project, dict) or project.get("name") != PROJECT_NAME:
-        return None
-    env_file = root / ".env"
-    return env_file if env_file.is_file() else None
-
-
-def load_dotenv(package_dir: Path | None = None) -> None:
-    """Load a source checkout's ``.env`` by the same rule as an env file; else nothing."""
-    path = checkout_env_file(package_dir)
-    if path is not None:
-        _apply_env(dotenv_values(path))
-
-
 def serve(args: argparse.Namespace) -> None:
-    transport = args.transport or os.environ.get("SBJ_TRANSPORT") or "stdio"
-    if transport not in TRANSPORTS:
-        raise ServeConfigError(f"SBJ_TRANSPORT must be one of {', '.join(TRANSPORTS)}")
+    transport = choose_transport(SERVER, args.transport)
     refuse_unreadable_settings(Settings.from_env())
     if transport == "stdio":
-        http_only = [
-            flag
-            for flag, value in (
-                ("--host", args.host),
-                ("--port", args.port),
-                ("--path", args.path),
-                ("--public-url", args.public_url),
-                ("--no-auth", args.no_auth or None),
-            )
-            if value is not None
-        ]
-        if http_only:
-            raise ServeConfigError(f"{', '.join(http_only)} only apply to --transport http")
+        refuse_http_flags(
+            {
+                "--host": args.host,
+                "--port": args.port,
+                "--path": args.path,
+                "--public-url": args.public_url,
+                "--no-auth": args.no_auth or None,
+            }
+        )
         asyncio.run(check_at_startup(Settings.from_env()))
-        # Named, not left to FastMCP's own FASTMCP_TRANSPORT setting: `serve` without
-        # `--transport http` must never listen on the network, where none of HTTP
-        # mode's checks (sign-in, loopback, the Host check) would have run.
-        create_server().run(transport="stdio")
+        # Never FastMCP's own FASTMCP_TRANSPORT: run_stdio names the transport.
+        run_stdio(create_server())
         return
     options = http_options(
+        SERVER,
         host=args.host,
         port=args.port,
         path=args.path,
         public_url=args.public_url,
         no_auth=args.no_auth,
     )
-    auth_settings = AuthSettings.from_env()
-    validate(options, auth_configured=auth_settings is not None)
-    configure_logging()
+    sync_interval = sync_interval_minutes()
+    auth_settings = AuthSettings.from_env(SERVER)
+    validate(SERVER, options, auth_configured=auth_settings is not None)
+    configure_logging(SERVER)
     settings = Settings.from_env()
     asyncio.run(check_at_startup(settings))
     if settings.writes_enabled and not settings.ask_every_time:
@@ -463,13 +404,13 @@ def serve(args: argparse.Namespace) -> None:
     auth = None
     if auth_settings is not None:
         assert options.public_url is not None  # validate() guarantees it with sign-in
-        auth = build_auth(auth_settings, options.public_url)
+        auth = build_auth(SERVER, auth_settings, options.public_url)
     server = create_server(
         auth=auth,
         allowed_ids=auth_settings.allowed_ids if auth_settings else None,
         rate_limit_per_minute=options.rate_limit_per_minute,
         remote=True,
-        sync_interval_minutes=options.sync_interval_minutes,
+        sync_interval_minutes=sync_interval,
     )
     run_http(server, options)
 
@@ -481,9 +422,9 @@ def main(argv: list[str] | None = None) -> None:
         parser.print_help()
         return
     try:
-        if getattr(args, "env_file", None) is not None:
-            load_env_file(args.env_file)
-        load_dotenv()
+        # The named file is the configuration: a checkout's .env is not read as
+        # well, where it would fill in whatever the file leaves out.
+        load_configuration(SERVER, getattr(args, "env_file", None))
         if args.command == "serve":
             serve(args)
         elif args.command == "reindex":

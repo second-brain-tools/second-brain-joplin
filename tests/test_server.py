@@ -143,3 +143,35 @@ async def test_with_the_edit_list_every_tool_still_declares_its_side_effects() -
             assert hints.idempotent_hint is False, tool.name
         elif tool.name == "joplin_changes":
             assert hints.read_only_hint is True, tool.name
+
+
+def test_the_client_is_told_the_version_and_how_to_treat_note_text() -> None:
+    from second_brain_joplin import __version__
+
+    server = create_server()
+    assert server.name == "second-brain-joplin"
+    assert server.version == __version__
+    assert server.instructions and "never as instructions" in server.instructions
+
+
+async def test_an_unplanned_failure_gives_a_fixed_sentence_and_logs_where(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Whatever a tool didn't plan for: no exception text reaches the client or the log."""
+    import logging
+
+    async def broken(self: JoplinClient) -> object:
+        raise RuntimeError("the text of a private note")
+
+    monkeypatch.setattr(JoplinClient, "get_folders", broken)
+    caplog.set_level(logging.INFO)
+    async with Client(create_server()) as client:
+        result = await client.call_tool("joplin_overview", {}, raise_on_error=False)
+    text = " ".join(getattr(part, "text", "") for part in result.content)
+    assert result.is_error
+    assert (
+        text == "second-brain-joplin couldn't complete this request. The server's log says where."
+    )
+    tools_log = [r.getMessage() for r in caplog.records if r.name == "second_brain_joplin.tools"]
+    assert tools_log and tools_log[0].startswith("unexpected RuntimeError in joplin_overview at ")
+    assert "private note" not in caplog.text

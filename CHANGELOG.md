@@ -6,6 +6,66 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] — Core
+
+The server now runs on second-brain-core, the library it shares with the other
+Second Brain servers: sign-in, the audit log, HTTP serving, the settings files and
+the search engine are written once for all of them. The tools, settings and the
+`reindex` command are unchanged. What you can notice: the audit log names the
+client, an unplanned failure gives a fixed sentence and never its own text, a named
+`--env-file` is the whole configuration, and the search index moves to the shared
+layout in place the first time 1.3.0 opens it.
+
+### Added
+
+- **The audit log names the client** (`client=`, #92), on every tool call's line
+  and on the lines the tools that write add: the name the client registered under
+  at sign-in, else the one it gives in the MCP handshake, else the first word of
+  its `User-Agent`, else `unknown`. Cut to 40 safe characters, so a hostile value
+  can't break or forge a line. It is what the client says about itself: a hint
+  for telling your clients apart, never proof, and nothing is decided by it.
+- **The client is told the server's version, and how to treat note text**: as
+  information, never as instructions, however it is worded (MCP `instructions`).
+
+### Changed
+
+- **Built on [second-brain-core](https://github.com/second-brain-tools/second-brain-core)**
+  (#91, #93): sign-in, the audit log, the rate limit, HTTP serving, the settings
+  files and the search engine are shared with the other Second Brain servers, so a
+  fix lands in all of them at once. The tools, the settings, the `reindex` command
+  and what each tool answers are unchanged. The `[semantic]`, `[semantic-chroma]`
+  and `[semantic-st]` extras now install the same extras of second-brain-core.
+- **A file named with `--env-file` is the whole configuration.** A source
+  checkout's `.env` no longer fills in what the named file leaves out (installed
+  copies never read one).
+- **The search index moves to the shared layout**, the first time 1.3.0 opens it:
+  in place, in one transaction, keeping every vector, so nothing is embedded again.
+  The file now records its layout's version, which server owns it, and the
+  vectors' width. A Chroma index (`SBJ_VECTOR_STORE=chroma`) is rebuilt instead,
+  as after a change of model: run `reindex` once.
+- **The index file gains a word index** (SQLite FTS5 over the same chunks), so it grows
+  by about the size of the indexed text; no tool of this server uses it yet. The index
+  directory is made private (0700) and the file 0600, ones made before included. A 1.3
+  index can't be read by 1.2: to go back, delete the index directory and `reindex`.
+- **One index directory per server.** A second Second Brain server pointed at the
+  same `SBJ_INDEX_DIR` is refused with a clear message: each server's sync drops
+  what it doesn't list itself, so two would delete each other's entries. The
+  background sync then stops and says so in the log.
+
+### Fixed
+
+- **An unplanned failure's text no longer reaches the client or the log.** Every
+  tool now ends with the shared rules: a failure the server plans for keeps its own
+  sentence; anything else gives the client one fixed sentence ("second-brain-joplin
+  couldn't complete this request. The server's log says where.") and the log its
+  class and place, never its text. The server also masks error details, and the
+  traceback is dropped from FastMCP's "Error calling tool" line. Before, such an
+  exception's own text went to the client, and FastMCP logged its traceback: a
+  pydantic error quotes the value it rejected, which could be text from a note the
+  client could read anyway. No path was found that carried the Joplin token.
+- **A new embedding width under the same model name now rebuilds the index**, as
+  `docs/semantic-search.md` said it did. Only a new model name was noticed before.
+
 ## [1.2.0] — Edit
 
 Claude can now change notes, not only add them, under a safety net that the
@@ -608,7 +668,8 @@ Initial project skeleton — the MCP server starts and all tools are stubbed.
 - Documentation: install, notebook structure (PARA), project management,
   releasing runbook, security policy, and an inspiration/reference note.
 
-[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.0.0...v1.0.1

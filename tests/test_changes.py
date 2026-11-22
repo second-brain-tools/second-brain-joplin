@@ -14,6 +14,7 @@ import respx
 from fakes import FakeJoplin
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from second_brain_core import env as core_env
 
 from second_brain_joplin import cli
 from second_brain_joplin.changes import ChangeRequest, change_note, sha256
@@ -32,7 +33,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("SBJ_UNDO_DIR", str(tmp_path / "undo"))
     monkeypatch.setenv("SBJ_EDIT_NOTEBOOKS", "Projects")
-    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr(core_env, "load_dotenv", lambda *a, **k: False)
 
 
 @pytest.fixture

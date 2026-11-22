@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from ..changes import ChangeRequest, change_note
 from ..context import app_context
+from ..failure import guarded
 from ..markdown import SectionError, find_section
 from ..models import MAX_NOTE_CHARS, MAX_TITLE_CHARS, ChangedNote
 from .annotations import ASK_EVERY_TIME, CHANGES_NOTE
@@ -159,6 +160,7 @@ def apply_prepend(body: str, prepend: Prepend) -> str:
 
 def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
     @mcp.tool(annotations=CHANGES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    @guarded
     async def joplin_edit_note(
         ctx: Context,
         note_id: NoteId,

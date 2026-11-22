@@ -6,15 +6,15 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppres
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import AuthProvider
-from fastmcp.server.middleware import AuthMiddleware, Middleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
+from second_brain_core.audit import RegisteredClients
+from second_brain_core.health import make_healthz
+from second_brain_core.remote import build_middleware
 
-from .audit import AuditMiddleware, rate_limit
-from .auth import allowlist_check
+from . import __version__
 from .background import sync_forever
 from .config import Settings
 from .context import AppContext
+from .identity import INSTRUCTIONS, NAMED_CAUSES, SERVER
 from .joplin_client import JoplinClient
 from .tools import register_tools
 
@@ -56,20 +56,21 @@ def make_lifespan(*, remote: bool = False, sync_interval_minutes: int = 0) -> Li
 lifespan = make_lifespan()
 
 
-async def healthz(_request: Request) -> JSONResponse:
-    """Say whether the server is up and whether Joplin answers, and nothing else.
+async def joplin_answers() -> bool:
+    """Whether Joplin answers, asked with a short-lived client of its own.
 
-    HTTP mode only (stdio has no routes). It is never behind sign-in, since FastMCP
-    does not guard custom routes, so it reveals no note data, no version and no
-    configuration: two booleans. 503 when Joplin is down, so a monitor sees it. It
-    opens its own short-lived client, which keeps it independent of the MCP lifespan.
+    Its own client keeps ``/healthz`` independent of the MCP lifespan, and of the
+    tools' hold after a timeout: it asks Joplin every time.
     """
     client = JoplinClient(Settings.from_env())
     try:
-        joplin = await client.ping()
+        return await client.ping()
     finally:
         await client.aclose()
-    return JSONResponse({"server": True, "joplin": joplin}, status_code=200 if joplin else 503)
+
+
+# Two booleans, 503 when Joplin is down (second_brain_core.health). Not cached.
+healthz = make_healthz(joplin_answers, "joplin")
 
 
 def create_server(
@@ -89,7 +90,9 @@ def create_server(
 
     With ``auth`` (HTTP mode), ``allowed_ids`` adds the per-tool allowlist check as
     a second layer behind the token verifier. ``rate_limit_per_minute`` (0 = off)
-    limits each caller. Every tool call is logged without its content (audit.py).
+    limits each caller. Every tool call is logged without its content
+    (``second_brain_core.audit``); with sign-in, the client is named from the
+    sign-in's registrations.
     ``remote`` and ``sync_interval_minutes`` are HTTP mode's: see make_lifespan.
 
     ``writes`` says whether the write tool is registered, ``edits`` whether the
@@ -99,21 +102,30 @@ def create_server(
     marked to be asked about on every call; None reads ``SBJ_ASK_EVERY_TIME`` the
     same way, which is on unless it plainly says no.
     """
-    if auth is not None and not allowed_ids:
-        raise ValueError("a server with sign-in needs its allowed GitHub ids")
-    middleware: list[Middleware] = []
-    if rate_limit_per_minute:
-        middleware.append(rate_limit(rate_limit_per_minute))
-    if allowed_ids:
-        middleware.append(AuthMiddleware(auth=allowlist_check(allowed_ids)))
-    middleware.append(AuditMiddleware())
+    clients = auth if isinstance(auth, RegisteredClients) else None
+    middleware = build_middleware(
+        SERVER,
+        allowed_ids=allowed_ids,
+        rate_limit_per_minute=rate_limit_per_minute,
+        named_causes=NAMED_CAUSES,
+        signed_in=auth is not None,
+        clients=clients,
+    )
     server_lifespan = (
         make_lifespan(remote=remote, sync_interval_minutes=sync_interval_minutes)
         if remote or sync_interval_minutes
         else lifespan
     )
     server = FastMCP(
-        "second-brain-joplin", lifespan=server_lifespan, auth=auth, middleware=middleware
+        SERVER.name,
+        version=__version__,
+        instructions=INSTRUCTIONS,
+        lifespan=server_lifespan,
+        auth=auth,
+        middleware=middleware,
+        # An exception that escapes a tool anyway reaches the client as FastMCP's
+        # generic sentence, never as its own text (every tool is also guarded).
+        mask_error_details=True,
     )
     settings = Settings.from_env()
     if writes is None:

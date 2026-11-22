@@ -1,10 +1,6 @@
 """Guard that packaging metadata stays wired to the single version source."""
 
-import subprocess
-import sys
 from importlib.metadata import metadata, version
-
-import pytest
 
 from second_brain_joplin import __version__
 
@@ -24,14 +20,4 @@ def test_license_metadata_names_the_agpl_and_nothing_else() -> None:
     assert [c for c in meta.get_all("Classifier") or [] if c.startswith("License ::")] == []
 
 
-@pytest.mark.parametrize(
-    "module",
-    ["second_brain_joplin.cli", "second_brain_joplin.changes", "second_brain_joplin.server"],
-)
-def test_each_entry_point_imports_on_its_own(module: str) -> None:
-    """In a fresh interpreter, as `second-brain-joplin` starts: a suite's import order
-    can hide an import cycle."""
-    done = subprocess.run(
-        [sys.executable, "-c", f"import {module}"], capture_output=True, text=True, timeout=120
-    )
-    assert done.returncode == 0, done.stderr[-2000:]
+# Each entry point importing on its own: tests/test_core_checks.py.
