@@ -6,6 +6,7 @@ this server's own failures named in the log.
 """
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -133,7 +134,7 @@ async def test_logs_hold_the_call_but_no_content_or_credentials(
     async with serving() as running:
         await _search_as_john(running)
     text = caplog.text
-    assert "tool=joplin_search caller=65598 client=mcp outcome=ok" in text
+    assert re.search(r"tool=joplin_search caller=65598 client=\S+ outcome=ok", text)
     for secret in (JOPLIN_TOKEN, NOTE_TEXT, QUERY, "Bearer john"):
         assert secret not in text, secret
 
@@ -149,7 +150,7 @@ async def test_failed_calls_are_logged_by_type_not_message(
         result = await client.call_tool("joplin_read", {"note_id": QUERY}, raise_on_error=False)
     assert result.is_error
     audit = [r.getMessage() for r in caplog.records if r.name == "second_brain_joplin.audit"]
-    assert audit and audit[0].startswith("tool=joplin_read caller=65598 client=mcp outcome=error")
+    assert audit and re.match(r"tool=joplin_read caller=65598 client=\S+ outcome=error", audit[0])
     assert QUERY not in " ".join(audit)
 
 

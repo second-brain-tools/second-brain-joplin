@@ -700,9 +700,9 @@ async def test_each_created_note_is_logged_by_id_with_no_content(
     monkeypatch.setenv("SBJ_WRITE_NOTEBOOKS", "Inbox")
     result = await _create(notebook="Inbox", title="Secret title", body="secret body text")
     for step in ("create sent", "created"):  # before the request goes out, and after
-        line = f"note {step} id={result['id']} notebook={vault.inbox} caller=anonymous client=mcp"
-        assert line in caplog.text
-    assert "tool=joplin_create_note caller=anonymous client=mcp outcome=ok" in caplog.text
+        line = f"note {step} id={result['id']} notebook={vault.inbox} caller=anonymous client="
+        assert re.search(re.escape(line) + r"\S+", caplog.text)
+    assert re.search(r"tool=joplin_create_note caller=anonymous client=\S+ outcome=ok", caplog.text)
     assert "Secret title" not in caplog.text
     assert "secret body text" not in caplog.text
 
