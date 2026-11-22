@@ -170,8 +170,8 @@ search doesn't sync first. Over stdio the index then changes only when you call
 background every `SBJ_SYNC_INTERVAL_MINUTES` (15 by default), so a new note can
 take that long to appear.
 
-**"The search index in … belongs to …. Give each server an index
-directory of its own (SBJ_INDEX_DIR)."** Another Second Brain server already keeps
+**"The search index in SBJ_INDEX_DIR belongs to …. Give each server an index
+directory of its own."** Another Second Brain server already keeps
 its index in that directory. Each server's sync drops whatever it doesn't list
 itself, so two servers sharing one would delete each other's entries: give this
 one its own `SBJ_INDEX_DIR`.

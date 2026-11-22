@@ -25,7 +25,7 @@ from second_brain_core.semantic.types import (
 from ..config import Settings
 from ..joplin_client import JoplinClient
 from ..models import SemanticResult, excerpt
-from ..scope import NotebookScope, current_scope
+from ..scope import current_scope
 
 
 class JoplinSource:
@@ -34,7 +34,6 @@ class JoplinSource:
     def __init__(self, client: JoplinClient, settings: Settings) -> None:
         self._client = client
         self._settings = settings
-        self._scope: NotebookScope | None = None
 
     @property
     def filter_active(self) -> bool:
@@ -42,15 +41,16 @@ class JoplinSource:
 
     async def list_versions(self) -> dict[str, str]:
         scope = await current_scope(self._client, self._settings)
-        self._scope = scope
         notes = await self._client.list_note_versions()
         return {note["id"]: str(note["updated_time"]) for note in notes if scope.allows_note(note)}
 
     async def get_item(self, item_id: str) -> ItemText | Skip:
         note = await self._client.get_note(item_id)
-        scope = self._scope or await current_scope(self._client, self._settings)
         # The listing said this note was visible; it may have moved since. What is
-        # embedded is decided by the notebook the text was actually read from.
+        # embedded is decided by the notebook the text was actually read from, under
+        # the filter as it is now (no scope is kept between calls: a search may list
+        # while a sync reads). Without a filter this asks Joplin nothing more.
+        scope = await current_scope(self._client, self._settings)
         if not scope.allows_note(note):
             return Skip.HIDDEN
         # Synced in encrypted, and not decrypted yet: its title and text read as

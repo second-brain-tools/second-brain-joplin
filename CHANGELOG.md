@@ -33,9 +33,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The file now records its layout's version, which server owns it, and the
   vectors' width. A Chroma index (`SBJ_VECTOR_STORE=chroma`) is rebuilt instead,
   as after a change of model: run `reindex` once.
+- **The index file gains a word index** (SQLite FTS5 over the same chunks), so it grows
+  by about the size of the indexed text; no tool of this server uses it yet. The index
+  directory is made private (0700) and the file 0600, ones made before included. A 1.3
+  index can't be read by 1.2: to go back, delete the index directory and `reindex`.
 - **One index directory per server.** A second Second Brain server pointed at the
   same `SBJ_INDEX_DIR` is refused with a clear message: each server's sync drops
-  what it doesn't list itself, so two would delete each other's entries.
+  what it doesn't list itself, so two would delete each other's entries. The
+  background sync then stops and says so in the log.
 
 ### Fixed
 

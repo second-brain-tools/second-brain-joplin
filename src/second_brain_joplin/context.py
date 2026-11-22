@@ -80,11 +80,13 @@ class AppContext:
 
             from .identity import SERVER
 
-            embedder = embedders.build_embedder(
-                SERVER, self.settings.embedding_backend, self.settings.embedding_model
-            )
+            # The index first: it is quick, and when it is refused (another server owns
+            # the directory) no model is loaded for nothing.
             index = stores.build_vector_index(
                 SERVER, self.settings.vector_store, self.settings.semantic_index_dir
+            )
+            embedder = embedders.build_embedder(
+                SERVER, self.settings.embedding_backend, self.settings.embedding_model
             )
             self._semantic = SemanticSearchService(self.client, embedder, index, self.settings)
         return self._semantic

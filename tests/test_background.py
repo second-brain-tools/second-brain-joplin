@@ -12,6 +12,7 @@ from fakes import FakeEmbedder, FakeVectorIndex
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from second_brain_core import env as core_env
+from second_brain_core.errors import IndexOwnedElsewhereError
 from second_brain_core.remote import HttpOptions, http_app_kwargs
 from second_brain_core.semantic import embedders, stores
 from second_brain_core.semantic.types import SyncStats
@@ -112,6 +113,23 @@ async def test_missing_semantic_extra_stops_the_loop(caplog: pytest.LogCaptureFi
     await asyncio.wait_for(task, timeout=1)
     assert task.done() and not task.cancelled()
     assert "isn't installed" in caplog.text
+
+
+async def test_an_index_another_server_owns_stops_the_loop_and_says_so(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="second_brain_joplin")
+    refused = IndexOwnedElsewhereError(
+        "The search index in SBJ_INDEX_DIR belongs to second-brain-imap. Give each server "
+        "an index directory of its own."
+    )
+    task = asyncio.create_task(sync_forever(FakeApp(refused), 0.01))  # type: ignore[arg-type]
+    await asyncio.wait_for(task, timeout=1)
+    assert task.done() and not task.cancelled()
+    assert "background index sync is off: The search index in SBJ_INDEX_DIR belongs to" in (
+        caplog.text
+    )
+    assert "isn't installed" not in caplog.text
 
 
 # -- the lifespan -------------------------------------------------------------
