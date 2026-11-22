@@ -17,9 +17,9 @@ a release is safe.
 
 The sign-in, logging, HTTP serving and search engine come from
 [second-brain-core](https://github.com/second-brain-tools/second-brain-core). A
-change there is released there **first**; then this package's pin
-(`second-brain-core>=X.Y,<X.(Y+1)` in `pyproject.toml`) moves to it, and this
-package is released as usual. A release of this package never depends on an
+change there is released there **first**; then this package's pins move to it
+(in `pyproject.toml`, the dependency and the three `semantic*` extras, each
+`second-brain-core>=X.Y,<X.(Y+1)`), and this package is released as usual. A release of this package never depends on an
 unreleased library.
 
 ## One-time operator setup

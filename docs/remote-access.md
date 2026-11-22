@@ -435,7 +435,7 @@ server's own rules are what make a change safe:
 - **An honest answer when Joplin fails.** If Joplin's answer is lost, the note
   is read again: the change arrived, it didn't, or it can't be told yet.
 - **A record.** Each change is logged with the tool, the note's id, its
-  notebook's id and the caller, before it goes out and with its outcome. Never
+  notebook's id, the caller and the client, before it goes out and with its outcome. Never
   the title or text. `joplin_changes` lists what was changed, with no text.
 
 Joplin's own note history isn't relied on for undoing a change: a change made

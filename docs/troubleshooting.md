@@ -360,7 +360,8 @@ The server writes its log to standard error.
 - **Claude Desktop:** one log per server, `mcp-server-second-brain-joplin.log`,
   in `~/Library/Logs/Claude` on macOS and `%APPDATA%\Claude\logs` on Windows.
 - **HTTP mode:** wherever your service manager sends standard error. One line
-  per tool call says which tool, who called, the outcome and how long it took.
+  per tool call says which tool, who called, from which client, the outcome and
+  how long it took.
   A failed call names what failed, by the error's class name only:
 
   ```
