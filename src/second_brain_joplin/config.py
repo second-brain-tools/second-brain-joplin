@@ -29,6 +29,13 @@ REPLACE_VAR = "SBJ_REPLACE"
 # joplin_create_notes (#69): the most notes one call may create; 0 leaves the tool out.
 CREATE_NOTES_MAX_VAR = "SBJ_CREATE_NOTES_MAX"
 CREATE_NOTES_CEILING = 20
+# The longest note the write tools accept (#114): the text of a new or replaced
+# note, the text an edit leaves, and what one call may carry. The default is the
+# limit before the setting existed, and the same as one page of joplin_read.
+MAX_NOTE_CHARS_VAR = "SBJ_MAX_NOTE_CHARS"
+DEFAULT_MAX_NOTE_CHARS = 100_000
+MAX_NOTE_CHARS_FLOOR = 1_000
+MAX_NOTE_CHARS_CEILING = 1_000_000
 
 DEFAULT_EMBEDDING_BACKEND = "fastembed"
 DEFAULT_VECTOR_STORE = "sqlite-vec"
@@ -103,6 +110,8 @@ class Settings(BaseModel):
     replace: bool = False
     # The most notes joplin_create_notes may create in one call; 0 leaves it out.
     create_notes_max: int = 0
+    # The longest note the write tools accept, and the most one call may carry.
+    max_note_chars: int = DEFAULT_MAX_NOTE_CHARS
     # The journal of old text (journal.py): where, for how long, how big; and the
     # most changes in one day. The journal is always on.
     undo_dir: str = ""
@@ -155,6 +164,12 @@ class Settings(BaseModel):
         ask_every_time = _env_switch(ASK_EVERY_TIME_VAR)
         replace = _env_flag(REPLACE_VAR)
         create_notes_max = _env_up_to(CREATE_NOTES_MAX_VAR, CREATE_NOTES_CEILING)
+        max_note_chars = env_int(
+            MAX_NOTE_CHARS_VAR,
+            DEFAULT_MAX_NOTE_CHARS,
+            minimum=MAX_NOTE_CHARS_FLOOR,
+            maximum=MAX_NOTE_CHARS_CEILING,
+        )
         timeout = _env_seconds(TIMEOUT_VAR, DEFAULT_TIMEOUT)
         connect_timeout = _env_seconds(CONNECT_TIMEOUT_VAR, DEFAULT_CONNECT_TIMEOUT)
         counts = {
@@ -181,7 +196,8 @@ class Settings(BaseModel):
                 if value is None
             )
             + tuple(name for name, (value, _) in counts.items() if value is None)
-            + ((CREATE_NOTES_MAX_VAR,) if create_notes_max is None else ()),
+            + ((CREATE_NOTES_MAX_VAR,) if create_notes_max is None else ())
+            + ((MAX_NOTE_CHARS_VAR,) if max_note_chars is None else ()),
             notebooks=_env_list("SBJ_NOTEBOOKS"),
             exclude_notebooks=_env_list("SBJ_EXCLUDE_NOTEBOOKS"),
             blank_filter_vars=_set_but_blank("SBJ_NOTEBOOKS", "SBJ_EXCLUDE_NOTEBOOKS"),
@@ -189,6 +205,7 @@ class Settings(BaseModel):
             edit_notebooks=_env_list("SBJ_EDIT_NOTEBOOKS"),
             replace=replace is True,
             create_notes_max=create_notes_max or 0,
+            max_note_chars=DEFAULT_MAX_NOTE_CHARS if max_note_chars is None else max_note_chars,
             undo_dir=os.environ.get("SBJ_UNDO_DIR", "").strip() or default_undo_dir(),
             undo_days=count(UNDO_DAYS_VAR),
             undo_max_mb=count(UNDO_MAX_MB_VAR),

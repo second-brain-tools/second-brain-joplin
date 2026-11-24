@@ -28,8 +28,8 @@ from ..changes import ChangeRequest, change_note
 from ..context import app_context
 from ..failure import guarded
 from ..markdown import SectionError, find_section
-from ..models import MAX_NOTE_CHARS, MAX_TITLE_CHARS, ChangedNote
-from .annotations import ASK_EVERY_TIME, CHANGES_NOTE
+from ..models import MAX_TITLE_CHARS, ChangedNote
+from .annotations import ASK_EVERY_TIME, CHANGES_NOTE, noting
 from .read import NoteId
 
 MAX_EDITS = 50
@@ -158,8 +158,18 @@ def apply_prepend(body: str, prepend: Prepend) -> str:
     return text + body
 
 
-def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
+def register(mcp: FastMCP, *, max_chars: int, ask_every_time: bool = True) -> None:
+    """Register joplin_edit_note; ``max_chars`` is ``SBJ_MAX_NOTE_CHARS``.
+
+    It bounds both the note an edit leaves and what one call carries (the text of
+    every ``old``, ``new``, ``append`` and ``prepend`` together).
+    """
+
     @mcp.tool(annotations=CHANGES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    @noting(
+        f"The note may be up to {max_chars:,} characters after the change, and the "
+        f"text in one call up to {max_chars:,} characters together."
+    )
     @guarded
     async def joplin_edit_note(
         ctx: Context,
@@ -201,9 +211,10 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
         size = sum(len(e.old) + len(e.new) for e in edits or [])
         size += len(append.text) if append else 0
         size += len(prepend.text) if prepend else 0
-        if size > MAX_NOTE_CHARS:
+        if size > max_chars:
             raise ToolError(
-                f"The edits hold {size:,} characters, over the limit of {MAX_NOTE_CHARS:,}."
+                f"The edits hold {size:,} characters, over the limit of {max_chars:,} for "
+                "one call, so nothing was written."
             )
 
         def make_body(body: str) -> str:
@@ -231,6 +242,7 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
                 title=title,
                 expected_sha256=expected_sha256,
                 make_body=make_body,
+                max_chars=max_chars,
                 request_parts=(described,),
             ),
         )

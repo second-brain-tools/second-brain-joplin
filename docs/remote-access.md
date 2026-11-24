@@ -280,7 +280,8 @@ and it can't write to a notebook the filter hides. Without the variable the tool
 isn't registered at all.
 
 With `SBJ_CREATE_NOTES_MAX` set too, `joplin_create_notes` creates up to that
-many notes (20 at most, and 100,000 characters in all) in one call. One approval
+many notes (20 at most, and `SBJ_MAX_NOTE_CHARS` characters in all, 100,000 by
+default) in one call. One approval
 then covers every note in the call, so set it only if that is what you want.
 Every note is checked before any is written; writing stops at the first one
 that fails, and the answer says which exist.
@@ -367,7 +368,8 @@ refresh the list and check that the prompt is back.
 - **Where.** Only the listed notebooks, and never a hidden one. A request for any
   other notebook gets one answer, whether that notebook is hidden, doesn't exist
   or just isn't listed, followed by the notebooks that can receive notes.
-- **How much.** A title of up to 300 characters, a body of up to 100,000.
+- **How much.** A title of up to 300 characters, a body of up to
+  `SBJ_MAX_NOTE_CHARS` (100,000 by default; [how long a note may be](configuration.md#how-long-a-note-may-be)).
 - **A record.** Each attempt is logged with the note's id, its notebook's id, the
   caller and the client, before the request goes out and again with its outcome
   (`created`, `create failed`, or `create unconfirmed`). Never the title or text:
@@ -635,6 +637,7 @@ Cowork. Free accounts can add one custom connector.
 | `SBJ_UNDO_DIR` / `SBJ_UNDO_DAYS` / `SBJ_UNDO_MAX_MB` | see [configuration](configuration.md#changing-notes) / `90` / `500` | The copies kept before each change |
 | `SBJ_CHANGES_PER_DAY` | `100` | The most changes in a day |
 | `SBJ_CREATE_NOTES_MAX` | `0` (off) | Up to this many notes (at most 20) in one call of `joplin_create_notes` |
+| `SBJ_MAX_NOTE_CHARS` | `100000` | The longest note the write tools accept, and the most one call may carry |
 | `SBJ_ASK_EVERY_TIME` | `true` | `false` leaves off the mark that asks Claude's clients to check with you before each note or change |
 | `SBJ_JOPLIN_TIMEOUT` / `SBJ_JOPLIN_CONNECT_TIMEOUT` | `10` / `3` | Seconds Joplin has to answer, and to accept the connection |
 | `SBJ_RATE_LIMIT_PER_MINUTE` | `60` | Tool calls per caller; 0 = off |

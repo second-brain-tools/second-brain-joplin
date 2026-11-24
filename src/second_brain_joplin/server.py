@@ -84,6 +84,7 @@ def create_server(
     edits: bool | None = None,
     replace_whole: bool | None = None,
     create_notes_max: int | None = None,
+    max_note_chars: int | None = None,
     ask_every_time: bool | None = None,
 ) -> FastMCP:
     """Build the MCP server with its tools and the ``/healthz`` route.
@@ -100,7 +101,9 @@ def create_server(
     (``SBJ_WRITE_NOTEBOOKS``, ``SBJ_EDIT_NOTEBOOKS``), so build the server after any
     env file is loaded. ``ask_every_time`` says whether that tool is
     marked to be asked about on every call; None reads ``SBJ_ASK_EVERY_TIME`` the
-    same way, which is on unless it plainly says no.
+    same way, which is on unless it plainly says no. ``replace_whole``,
+    ``create_notes_max`` and ``max_note_chars`` likewise read ``SBJ_REPLACE``,
+    ``SBJ_CREATE_NOTES_MAX`` and ``SBJ_MAX_NOTE_CHARS`` when None.
     """
     clients = auth if isinstance(auth, RegisteredClients) else None
     middleware = build_middleware(
@@ -136,6 +139,8 @@ def create_server(
         replace_whole = settings.replace
     if create_notes_max is None:
         create_notes_max = settings.create_notes_max
+    if max_note_chars is None:
+        max_note_chars = settings.max_note_chars
     if ask_every_time is None:
         ask_every_time = settings.ask_every_time
     register_tools(
@@ -144,6 +149,7 @@ def create_server(
         edits=edits,
         replace_whole=replace_whole,
         create_notes_max=create_notes_max,
+        max_note_chars=max_note_chars,
         ask_every_time=ask_every_time,
     )
     server.custom_route("/healthz", methods=["GET"])(healthz)

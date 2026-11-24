@@ -29,6 +29,10 @@ from .config import (
     CONNECT_TIMEOUT_VAR,
     CREATE_NOTES_CEILING,
     CREATE_NOTES_MAX_VAR,
+    DEFAULT_MAX_NOTE_CHARS,
+    MAX_NOTE_CHARS_CEILING,
+    MAX_NOTE_CHARS_FLOOR,
+    MAX_NOTE_CHARS_VAR,
     TIMEOUT_VAR,
     Settings,
 )
@@ -315,6 +319,11 @@ def _number_problem(name: str) -> str:
         return f"{name} must be a number of seconds above 0, got {got!r}"
     if name == CREATE_NOTES_MAX_VAR:
         return f"{name} must be a whole number from 0 to {CREATE_NOTES_CEILING}, got {got!r}"
+    if name == MAX_NOTE_CHARS_VAR:
+        return (
+            f"{name} must be a whole number from {MAX_NOTE_CHARS_FLOOR:,} to "
+            f"{MAX_NOTE_CHARS_CEILING:,}, written without commas, got {got!r}"
+        )
     return f"{name} must be a whole number of at least 1, got {got!r}"
 
 
@@ -331,6 +340,18 @@ def refuse_unreadable_settings(settings: Settings) -> None:
     ] + [_number_problem(name) for name in settings.unreadable_numbers]
     if problems:
         raise ServeConfigError("; ".join(problems))
+
+
+def note_limit_line(settings: Settings) -> str | None:
+    """The line that says a raised or lowered note limit, when a write tool is on."""
+    if settings.max_note_chars == DEFAULT_MAX_NOTE_CHARS:
+        return None
+    if not (settings.writes_enabled or settings.edits_enabled):
+        return None
+    return (
+        f"Longest note the write tools accept: {settings.max_note_chars:,} characters "
+        f"({MAX_NOTE_CHARS_VAR}; the default is {DEFAULT_MAX_NOTE_CHARS:,})."
+    )
 
 
 def notebooks(_args: argparse.Namespace) -> None:
@@ -360,6 +381,9 @@ def notebooks(_args: argparse.Namespace) -> None:
         print(f"Changing notes: allowed in the {len(editable.titles)} marked editable{replace}.")
     else:
         print("Changing notes: off (SBJ_EDIT_NOTEBOOKS is not set).")
+    limit = note_limit_line(settings)
+    if limit:
+        print(limit)
     print("\n".join(notebook_lines(folders, notes_index, scope, targets, editable)))
 
 
@@ -401,6 +425,9 @@ def serve(args: argparse.Namespace) -> None:
             "note creation: SBJ_ASK_EVERY_TIME is off, so whether you are asked before "
             "each note is up to the client"
         )
+    limit = note_limit_line(settings)
+    if limit:
+        logger.info("%s", limit[0].lower() + limit[1:])
     auth = None
     if auth_settings is not None:
         assert options.public_url is not None  # validate() guarantees it with sign-in

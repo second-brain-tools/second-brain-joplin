@@ -17,8 +17,8 @@ from pydantic import Field
 from ..changes import ChangeRequest, change_note, sha256
 from ..context import app_context
 from ..failure import guarded
-from ..models import MAX_NOTE_CHARS, MAX_TITLE_CHARS, ChangedNote
-from .annotations import ASK_EVERY_TIME, REPLACES_NOTE
+from ..models import MAX_TITLE_CHARS, ChangedNote
+from .annotations import ASK_EVERY_TIME, REPLACES_NOTE, noting
 from .edit import Checksum
 from .read import NoteId
 
@@ -29,8 +29,11 @@ class ReplacedNote(ChangedNote):
     already_replaced: bool = False
 
 
-def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
+def register(mcp: FastMCP, *, max_chars: int, ask_every_time: bool = True) -> None:
+    """Register joplin_replace_note; ``max_chars`` is ``SBJ_MAX_NOTE_CHARS``."""
+
     @mcp.tool(annotations=REPLACES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    @noting(f"The new text may be up to {max_chars:,} characters.")
     @guarded
     async def joplin_replace_note(
         ctx: Context,
@@ -49,8 +52,10 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
             str,
             Field(
                 min_length=1,
-                max_length=MAX_NOTE_CHARS,
-                description="The note's whole new text, in markdown.",
+                max_length=max_chars,
+                description=(
+                    f"The note's whole new text, in markdown: up to {max_chars:,} characters."
+                ),
             ),
         ],
         expected_sha256: Checksum,
@@ -71,6 +76,7 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
                 title=title,
                 expected_sha256=expected_sha256,
                 make_body=lambda _old: body,
+                max_chars=max_chars,
                 request_parts=(sha256(body),),
                 allow_empty=False,
                 target_body=body,

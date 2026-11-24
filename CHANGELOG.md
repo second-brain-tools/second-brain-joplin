@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`SBJ_MAX_NOTE_CHARS` sets the longest note the write tools accept** (#114).
+  It was fixed at 100,000 characters, which is still the default, so nothing
+  changes until you set it. It can be from 1,000 to 1,000,000; anything else
+  stops the server from starting. `joplin_create_note`, `joplin_create_notes`,
+  `joplin_replace_note` and `joplin_edit_note` all use it, both for the note and
+  for what one call may carry, and each tool's description names the limit in
+  force. Reading is unchanged: a note longer than one page of `joplin_read` is
+  read in pages, or by its outline and one section.
+  [How long a note may be](docs/configuration.md#how-long-a-note-may-be).
+
 ## [1.3.1] — The client's name
 
 ### Fixed
