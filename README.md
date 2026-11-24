@@ -166,7 +166,7 @@ changing quickly, so check its own documentation. The two can run side by side.
 The aim is that everything the built-in server can do, this one can do too,
 under the same filter, sign-in and log. Editing, richer search and reading by
 section came in 1.2; the trash, moving notes, tags, to-dos and new notebooks come
-in 1.4 (see the [Roadmap](#roadmap)).
+in 1.5 (see the [Roadmap](#roadmap)).
 
 ---
 
@@ -216,7 +216,8 @@ The [PARA method](https://fortelabs.com/blog/para/) works well with Joplin. See 
 | [v1.0 — Publish](https://github.com/second-brain-tools/second-brain-joplin/milestone/5) | PyPI, full docs, templates | Done |
 | [v1.2 — Edit](https://github.com/second-brain-tools/second-brain-joplin/milestone/7) | Change notes safely; search results that say where the match is; reading by section | Done |
 | [v1.3 — Core](https://github.com/second-brain-tools/second-brain-joplin/milestone/9) | Sign-in, logging, serving and the search engine shared with the other Second Brain servers; the client named in the log | Done |
-| [v1.4 — Organise](https://github.com/second-brain-tools/second-brain-joplin/milestone/8) | Move, trash, tags, to-dos, notebooks and attachments | Planned |
+| v1.4 | A setting for the longest note the write tools accept (`SBJ_MAX_NOTE_CHARS`) | Done |
+| [v1.5 — Organise](https://github.com/second-brain-tools/second-brain-joplin/milestone/8) | Move, trash, tags, to-dos, notebooks and attachments | Planned |
 
 ---
 

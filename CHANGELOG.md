@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0]
+
 ### Added
 
 - **`SBJ_MAX_NOTE_CHARS` sets the longest note the write tools accept** (#114).
@@ -692,7 +694,8 @@ Initial project skeleton — the MCP server starts and all tools are stubbed.
 - Documentation: install, notebook structure (PARA), project management,
   releasing runbook, security policy, and an inspiration/reference note.
 
-[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/second-brain-tools/second-brain-joplin/compare/v1.1.0...v1.2.0
