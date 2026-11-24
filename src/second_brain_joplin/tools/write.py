@@ -35,7 +35,6 @@ from ..errors import JoplinAuthError, JoplinConnectionError, JoplinError, Notebo
 from ..failure import guarded, tool_error
 from ..joplin_client import JoplinClient
 from ..models import (
-    MAX_NOTE_CHARS,
     MAX_TITLE_CHARS,
     CreatedItem,
     CreatedNote,
@@ -44,7 +43,7 @@ from ..models import (
 )
 from ..recent import note_key
 from ..scope import ID_RE, WriteTargets
-from .annotations import ASK_EVERY_TIME, CREATES_NOTE
+from .annotations import ASK_EVERY_TIME, CREATES_NOTE, noting
 
 audit_logger = logging.getLogger("second_brain_joplin.audit")
 
@@ -100,15 +99,17 @@ def clean_title(title: str) -> str:
     return cleaned
 
 
-def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
+def register(mcp: FastMCP, *, max_chars: int, ask_every_time: bool = True) -> None:
     """Register the write tool on the given FastMCP server.
 
+    ``max_chars`` is the longest text it accepts (``SBJ_MAX_NOTE_CHARS``).
     ``ask_every_time`` marks it so that Claude Code prompts on every call. False
     (``SBJ_ASK_EVERY_TIME=false``) leaves the mark off, for a client whose prompt
     for a marked tool can't be answered; see annotations.py.
     """
 
     @mcp.tool(annotations=CREATES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    @noting(f"The text may be up to {max_chars:,} characters.")
     @guarded
     async def joplin_create_note(
         ctx: Context,
@@ -122,7 +123,10 @@ def register(mcp: FastMCP, *, ask_every_time: bool = True) -> None:
         ],
         body: Annotated[
             str,
-            Field(max_length=MAX_NOTE_CHARS, description="The note's text, in markdown."),
+            Field(
+                max_length=max_chars,
+                description=f"The note's text, in markdown: up to {max_chars:,} characters.",
+            ),
         ],
         notebook: Annotated[
             str,
@@ -260,10 +264,14 @@ async def create_one(
 
 
 class NewNote(BaseModel):
-    """One note for joplin_create_notes."""
+    """One note for joplin_create_notes.
+
+    The body has no bound of its own here: the limit is a setting, and the call
+    checks the notes' text together against it (the one limit that matters).
+    """
 
     title: Annotated[str, Field(min_length=1, max_length=MAX_TITLE_CHARS)]
-    body: Annotated[str, Field(max_length=MAX_NOTE_CHARS)]
+    body: str
     notebook: Annotated[
         str,
         Field(
@@ -274,10 +282,17 @@ class NewNote(BaseModel):
     ]
 
 
-def register_many(mcp: FastMCP, *, max_notes: int, ask_every_time: bool = True) -> None:
-    """Register joplin_create_notes (#69), for up to ``max_notes`` notes a call."""
+def register_many(
+    mcp: FastMCP, *, max_notes: int, max_chars: int, ask_every_time: bool = True
+) -> None:
+    """Register joplin_create_notes (#69), for up to ``max_notes`` notes a call.
+
+    ``max_chars`` (``SBJ_MAX_NOTE_CHARS``) bounds the notes' text together, so one
+    call never carries more than one note may hold.
+    """
 
     @mcp.tool(annotations=CREATES_NOTE, meta=ASK_EVERY_TIME if ask_every_time else None)
+    @noting(f"The notes' text may be up to {max_chars:,} characters together.")
     @guarded
     async def joplin_create_notes(
         ctx: Context,
@@ -302,10 +317,10 @@ def register_many(mcp: FastMCP, *, max_notes: int, ask_every_time: bool = True) 
         if len(notes) > max_notes:
             raise ToolError(f"This server creates at most {max_notes} notes in one call.")
         total = sum(len(n.body) for n in notes)
-        if total > MAX_NOTE_CHARS:
+        if total > max_chars:
             raise ToolError(
                 f"The notes hold {total:,} characters together, over the limit of "
-                f"{MAX_NOTE_CHARS:,} for one call."
+                f"{max_chars:,} for one call, so nothing was created."
             )
         app = app_context(ctx)
         try:

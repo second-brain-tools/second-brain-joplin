@@ -114,6 +114,7 @@ These apply to every tool, over stdio and HTTP alike.
 | `SBJ_WRITE_NOTEBOOKS` | none: read-only | New notes may be created in these notebooks. `*` means every visible notebook. Without it `joplin_create_note` doesn't exist |
 | `SBJ_EDIT_NOTEBOOKS` | none: no note can be changed | Notes in these notebooks may be changed by the tools that change notes. `*` means every visible notebook. Without it none of those tools exists. It is separate from `SBJ_WRITE_NOTEBOOKS`, which only ever allows a new note |
 | `SBJ_CREATE_NOTES_MAX` | `0`: off | With `SBJ_WRITE_NOTEBOOKS`, adds `joplin_create_notes`, which creates up to this many notes (at most 20) in one call, so one approval covers them all. 0 leaves it out. Anything but a whole number from 0 to 20 stops the server from starting |
+| `SBJ_MAX_NOTE_CHARS` | `100000` | The longest note the write tools accept, in characters: the text of a new or replaced note, the text an edit leaves, and what one call may carry ([below](#how-long-a-note-may-be)). A whole number from 1000 to 1000000, written without commas; anything else stops the server from starting |
 | `SBJ_REPLACE` | `false` | `true` adds `joplin_replace_note`, which rewrites a whole note, to the tools `SBJ_EDIT_NOTEBOOKS` allows. A value that is neither a yes nor a no stops the server from starting |
 | `SBJ_ASK_EVERY_TIME` | `true` | The write tools (`joplin_create_note`, `joplin_create_notes`, `joplin_edit_note`, `joplin_replace_note`) are marked to ask Claude's clients to put every call to a person. `false` leaves the mark off, for a client whose prompt for a marked tool can't be answered. Notes can then be created, and with `SBJ_EDIT_NOTEBOOKS` changed, without asking you: read [what you give up](remote-access.md#a-client-whose-prompt-cant-be-answered) first |
 
@@ -132,6 +133,34 @@ These apply to every tool, over stdio and HTTP alike.
   setting is fixed.
 - `second-brain-joplin notebooks` lists every notebook with its id and shows
   what your settings make of it ([below](#second-brain-joplin-notebooks)).
+
+### How long a note may be
+
+`SBJ_MAX_NOTE_CHARS` is one limit, used everywhere a write tool checks a length:
+
+- `joplin_create_note`: the note's text.
+- `joplin_create_notes`: the text of all the notes in the call together.
+- `joplin_replace_note`: the new text.
+- `joplin_edit_note`: the text the note would hold after the change, and the
+  text in the call itself (every `old`, `new`, `append` and `prepend`
+  together).
+
+A refusal names the limit and writes nothing, and each tool's description
+names the limit in force, so a client knows it before it calls.
+
+What one call may carry follows the setting too, rather than staying at
+100,000. `joplin_create_note` and `joplin_replace_note` always carry the whole
+note, so a fixed limit per call would make a raised setting do nothing for
+them, and two limits would be harder to reason about than one. Before raising
+it, think about your client: it has its own practical ceiling on a tool call,
+and a long note can still be changed in several small edits.
+
+The read tools don't change. One page of `joplin_read` is at most 100,000
+characters (`max_chars`), so a longer note is read in pages: call again with
+`offset` set to `next_offset` until it is null, and the joined pages have the
+note's `body_sha256`. Or read its `outline`, then one `section`. A note written
+in Joplin itself can be any length; this setting only limits what the write
+tools put there.
 
 The rules in full:
 [Choosing which notebooks are exposed](remote-access.md#choosing-which-notebooks-are-exposed),
@@ -282,6 +311,10 @@ settings don't match Joplin's notebooks, it still prints the tree, with `?` for
 each mark, and then says which entry is wrong. With `SBJ_ASK_EVERY_TIME=false`
 and note creation on, a line after `Note creation:` says so:
 `Asking before each note: left to the client (SBJ_ASK_EVERY_TIME is off).`
+With `SBJ_MAX_NOTE_CHARS` set to anything but the default and a write tool on,
+a line after `Changing notes:` says the limit:
+`Longest note the write tools accept: 250,000 characters (SBJ_MAX_NOTE_CHARS; the default is 100,000).`
+`serve` in HTTP mode logs the same at start-up.
 
 ### `second-brain-joplin restore`
 

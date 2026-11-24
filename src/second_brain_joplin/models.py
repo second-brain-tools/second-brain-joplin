@@ -25,9 +25,10 @@ READ_MAX_CHARS = 100_000
 # joplin_read_notes: at most this many notes, sharing this many characters of text.
 READ_NOTES_MAX = 20
 READ_NOTES_BUDGET = 40_000
-# Bounds on a note the write tool may create: one page of joplin_read holds it.
+# The longest title a write tool accepts. The longest text is a setting
+# (SBJ_MAX_NOTE_CHARS, config.py): a note longer than one page of joplin_read is
+# read in pages (next_offset), or by its outline and one section.
 MAX_TITLE_CHARS = 300
-MAX_NOTE_CHARS = 100_000
 
 
 def epoch_ms_to_iso(value: int) -> str:

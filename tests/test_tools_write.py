@@ -20,8 +20,9 @@ from fastmcp.exceptions import ToolError
 from second_brain_core import env as core_env
 
 from second_brain_joplin import cli
+from second_brain_joplin.config import DEFAULT_MAX_NOTE_CHARS as MAX_NOTE_CHARS
 from second_brain_joplin.errors import NOTEBOOK_FILTER_MESSAGE
-from second_brain_joplin.models import MAX_NOTE_CHARS, MAX_TITLE_CHARS
+from second_brain_joplin.models import MAX_TITLE_CHARS
 from second_brain_joplin.server import create_server, mcp
 from second_brain_joplin.tools.write import WRITES_OFF_MESSAGE
 

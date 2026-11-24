@@ -63,7 +63,8 @@ answer *when* a piece of work ships; there are deliberately no `phase-*` labels
 | **v1.0 — Publish** | PyPI release, full docs, Joplin templates |
 | **v1.2 — Edit** | Change notes safely; search results that say where the match is; reading by section |
 | **v1.3 — Core** | Run on second-brain-core, shared with the other Second Brain servers; the client named in the log |
-| **v1.4 — Organise** | Move, trash, tags, to-dos, notebooks and attachments, under the same rules |
+| **v1.4** | A setting for the longest note the write tools accept |
+| **v1.5 — Organise** | Move, trash, tags, to-dos, notebooks and attachments, under the same rules |
 
 ## Triage
 

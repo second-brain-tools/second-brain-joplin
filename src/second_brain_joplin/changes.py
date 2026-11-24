@@ -47,7 +47,7 @@ from .errors import (
 )
 from .failure import tool_error
 from .journal import JournalError
-from .models import MAX_NOTE_CHARS, ChangedNote, epoch_ms_to_iso
+from .models import ChangedNote, epoch_ms_to_iso
 from .recent import request_key
 from .scope import WriteTargets, edit_targets_of, note_id_of, scope_of, visible_note
 
@@ -78,6 +78,9 @@ class ChangeRequest:
     expected_sha256: str
     # Makes the new body from the current one; raises ToolError to refuse.
     make_body: Callable[[str], str]
+    # The longest the new body may be: the limit the tool was registered with
+    # (SBJ_MAX_NOTE_CHARS), so a refusal and the tool's description agree.
+    max_chars: int
     # Everything else that makes this call this call (the edits, the new body), for
     # the repeat memory.
     request_parts: tuple[str, ...]
@@ -175,10 +178,10 @@ async def change_note(app: AppContext, request: ChangeRequest) -> ChangedNote:
             raise ToolError("The change would leave the note as it is, so nothing was written.")
         if not new_body.strip() and not request.allow_empty:
             raise ToolError("A note's text can't be replaced with nothing.")
-        if len(new_body) > MAX_NOTE_CHARS:
+        if len(new_body) > request.max_chars:
             raise ToolError(
                 f"The note would be {len(new_body):,} characters, over the limit of "
-                f"{MAX_NOTE_CHARS:,}, so nothing was written."
+                f"{request.max_chars:,}, so nothing was written."
             )
         try:
             attached = [r["id"] for r in await app.client.get_note_resources(note_id)]

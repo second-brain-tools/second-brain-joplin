@@ -18,7 +18,7 @@ from second_brain_core import env as core_env
 
 from second_brain_joplin import cli
 from second_brain_joplin.changes import ChangeRequest, change_note, sha256
-from second_brain_joplin.config import Settings
+from second_brain_joplin.config import DEFAULT_MAX_NOTE_CHARS, Settings
 from second_brain_joplin.context import AppContext
 from second_brain_joplin.joplin_client import JoplinClient
 from second_brain_joplin.journal import DAY, Journal, JournalError
@@ -65,6 +65,7 @@ def _request(
     parts: tuple[str, ...] = ("append New line.",),
     tool: str = "test_change",
     allow_empty: bool = True,
+    max_chars: int = DEFAULT_MAX_NOTE_CHARS,
 ) -> ChangeRequest:
     return ChangeRequest(
         tool=tool,
@@ -72,6 +73,7 @@ def _request(
         title=title,
         expected_sha256=expected if expected is not None else sha256(BODY),
         make_body=make,
+        max_chars=max_chars,
         request_parts=parts,
         allow_empty=allow_empty,
     )

@@ -192,7 +192,10 @@ Returns:
 
 To read a long note in full, call again with `offset` set to the last
 `next_offset` until it comes back null. Claude limits how much one tool result
-may hold, which is why a page stops at 100,000 characters.
+may hold, which is why a page stops at 100,000 characters. A note can be
+longer than that: the write tools accept notes up to
+[`SBJ_MAX_NOTE_CHARS`](configuration.md#how-long-a-note-may-be) (100,000 by
+default), and a note written in Joplin can be any length.
 
 For a long note, ask for the outline first, then read the one section you need.
 The outline is one line per section, `path`, its length in characters and its
@@ -394,7 +397,7 @@ without it a client can't see or call it.
 | Argument | Type | Allowed |
 |---|---|---|
 | `title` | string | 1 to 300 characters. Line breaks and runs of spaces become single spaces |
-| `body` | string | Up to 100,000 characters of markdown |
+| `body` | string | Up to [`SBJ_MAX_NOTE_CHARS`](configuration.md#how-long-a-note-may-be) characters of markdown (100,000 by default) |
 | `notebook` | string | The notebook's exact title, or its id |
 
 Returns:
@@ -443,7 +446,8 @@ More in [Creating notes](remote-access.md#creating-notes).
 ## `joplin_create_notes`
 
 Creates several new notes in one call: up to `SBJ_CREATE_NOTES_MAX` of them (at
-most 20), holding up to 100,000 characters together. It exists only when
+most 20), holding up to `SBJ_MAX_NOTE_CHARS` characters together (100,000 by
+default). It exists only when
 [`SBJ_CREATE_NOTES_MAX`](configuration.md#notebooks) is set as well as
 `SBJ_WRITE_NOTEBOOKS`, and one approval, where the client asks, covers every
 note in the call.
@@ -488,7 +492,8 @@ change the server keeps a copy of the note
 | `prepend` | object or null | null | `{"text": …}`: the text to add at the very start |
 
 At least one of `edits`, `append` and `prepend` is needed; together they may
-hold up to 100,000 characters. The edits are applied in order, then `append`,
+hold up to `SBJ_MAX_NOTE_CHARS` characters (100,000 by default), and so may the
+note after the change. The edits are applied in order, then `append`,
 then `prepend`.
 
 - **Each `old` must appear exactly once** in the text as it stands when its
@@ -550,7 +555,7 @@ under the same rules ([what protects a change](remote-access.md#changing-notes))
 |---|---|---|---|
 | `note_id` | string | required | The note's id, or a link to it |
 | `title` | string | required | The note's current title, exactly as `joplin_read` gave it |
-| `body` | string | required | The whole new text, 1 to 100,000 characters, not only spaces |
+| `body` | string | required | The whole new text, 1 to `SBJ_MAX_NOTE_CHARS` characters (100,000 by default), not only spaces |
 | `expected_sha256` | string | required | `body_sha256` from the `joplin_read` the new text is based on |
 
 Only the text changes: the title, notebook, tags and creation date stay. The new
